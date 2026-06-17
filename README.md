@@ -1,35 +1,35 @@
 # ScreenMate Dash
 
-Кастомная нативная приборка для приставки **Tesla Screenmate** (Android 14, board `bengal_515`).
-Рисуется системным оверлеем поверх экрана и берёт реальные данные машины из штатного приложения.
-Переключение между нашей и штатной приборкой — **5 быстрых тапов**.
+A custom native dashboard for the **Tesla Screenmate** box (Android 14, board `bengal_515`).
+It draws as a system overlay on top of the screen and pulls real vehicle data from the stock
+app. Switch between this dashboard and the stock one with **5 quick taps**.
 
-> ⚠️ **Экспериментально, на свой риск.** Тестировалось на Screenmate со стоком v1.7.
-> Патч обратим (делается бэкап оригинала; кнопка «Снять патч» возвращает сток). Полная
-> перезагрузка тоже сбрасывает патч к стоку, а приложение накладывает его заново при загрузке.
+> ⚠️ **Experimental — use at your own risk.** Tested on a Screenmate running stock v1.7.
+> The patch is reversible (the original is backed up; the "Remove patch" button restores stock).
+> A full reboot also drops the patch back to stock, and the app re-applies it automatically on boot.
 
-## Установка
+## Install
 
-1. Скачать **SMDashPatcher.apk** из [Releases](../../releases).
-2. На приставке разрешить установку из неизвестных источников и поставить APK.
-3. Открыть приложение → **«Установить патч (бэкап + автозагрузка)»**.
-4. На экране приставки появится системный диалог **«Разрешить отладку?»** —
-   нажать **«Всегда разрешать с этого устройства»** (один раз; нужно для применения патча).
-5. Готово — появится наша приборка. КМ/Ч, реальные данные, телл-тейлы.
+1. Download **SMDashPatcher.apk** from [Releases](../../releases).
+2. On the Screenmate, allow installation from unknown sources and install the APK.
+3. Open the app → **"Install patch (backup + autostart)"**.
+4. A system **"Allow debugging?"** dialog appears on the Screenmate screen —
+   tap **"Always allow from this device"** (one time; required to apply the patch).
+5. Done — the custom dashboard appears: km/h, live data, telltales.
 
-## Управление
+## Controls
 
-- **5 тапов** по приборке (нашей или штатной) — переключение между ними.
-- Потянуть вверх — свернуть в полоску; потянуть полоску вниз — развернуть.
-- Двумя пальцами — масштаб 50–100%. Перетаскивание — переставить.
-- В приложении: «Снять патч» — вернуть сток; «Настройка позиций» — подгонка.
+- **5 taps** on the dashboard (custom or stock) — switch between them.
+- Drag up — collapse into a strip; pull the strip down — expand it.
+- Two fingers — scale 50–100%. Drag — reposition.
+- In the app: "Remove patch" — restore stock; "Tune positions" — fine-tune the layout.
 
-## Как это устроено
+## How it works
 
-Загрузчик приставки залочен (dm-verity), писать в системный раздел нельзя. Поэтому
-пропатченный стоковый APK накладывается **bind-mount**'ом поверх системного (эфемерно), а
-приложение переналагает его при каждой загрузке через **локальный root-adbd**. Подробности —
-в коде.
+The Screenmate's bootloader is locked (dm-verity enforcing), so the system partition can't be
+written. The patched stock dashboard APK is therefore **bind-mounted** over the system_ext copy
+(ephemeral), and the app re-applies it on every boot through the device's own **local root adbd**.
+See the source for details.
 
 ---
-SMDashPatcher.apk · md5 `950b905728ad9e6b6827248cc1e1eeb8` · 43279790 байт
+SMDashPatcher.apk · md5 `950b905728ad9e6b6827248cc1e1eeb8` · 43279790 bytes
