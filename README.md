@@ -23,6 +23,7 @@ app. Switch between this dashboard and the stock one with **5 quick taps**.
 - Drag up — collapse into a strip; pull the strip down — expand it.
 - Two fingers — scale 50–100%. Drag — reposition.
 - In the app: "Remove patch" — restore stock; "Tune positions" — fine-tune the layout.
+- UI language: **English by default**, toggle to Russian via the EN/RU switch at the top.
 
 ## How it works
 
@@ -32,4 +33,4 @@ written. The patched stock dashboard APK is therefore **bind-mounted** over the 
 See the source for details.
 
 ---
-SMDashPatcher.apk (v0.4) · md5 `399e12c0f1d7acf7ca66a9b7aa3dd6d3` · 29434438 bytes
+SMDashPatcher.apk (v0.5) · md5 `ac331a9c99db079cdd45b24733e94d5c` · 29453490 bytes
