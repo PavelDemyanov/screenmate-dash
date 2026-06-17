@@ -32,4 +32,4 @@ written. The patched stock dashboard APK is therefore **bind-mounted** over the 
 See the source for details.
 
 ---
-SMDashPatcher.apk · md5 `950b905728ad9e6b6827248cc1e1eeb8` · 43279790 bytes
+SMDashPatcher.apk (v0.2) · md5 `455615ad883e9f37f3dc8849b62c0998` · 29435742 bytes
