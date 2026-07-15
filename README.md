@@ -26,7 +26,7 @@ overlay that replaces the stock dashboard, fed with live vehicle data from the s
   `Stock → Arc → Stack → Strip → Mini → Stock`, round and round. No menus.
 - **Live data** — speed, gear, battery, temperatures, speed limit, autopilot, turn signals,
   high beam, seatbelt — straight from the car.
-- **КМ/Ч** — speed localized to km/h.
+- **КМ/Ч** — speed localized to km/h. 12-hour (AM/PM) clocks are supported too.
 - **In-Settings panel** — a *SM DASH* block inside the stock *Display* settings: a master
   toggle, the five style thumbnails, and a **transparency** slider that controls the dashboard
   live. The highlighted style follows the active dashboard in real time.
@@ -64,3 +64,59 @@ re-applied on every boot through the device's own local root adbd. Fully reversi
 
 > ⚠️ Experimental — use at your own risk. The patch is reversible, and the app re-applies it
 > automatically after a reboot.
+
+## Source & transparency
+
+This is the full source of ScreenMate Dash — published so anyone can read exactly what it does
+before installing it. Points worth verifying yourself:
+
+- **The overlay app** is standard Kotlin + Jetpack Compose (`app/src/main/java/app/smdash/`).
+  The interesting file is [`Patcher.kt`](app/src/main/java/app/smdash/Patcher.kt) — everything
+  it does to your device is there.
+- **No data leaves the device.** The `INTERNET` permission exists only so the app can talk to the
+  device's **own** local root adbd over `127.0.0.1` (loopback) to apply the patch — there are no
+  outbound network connections. Grep the source; there is no analytics, no server, no telemetry.
+- **What the stock-app patch changes** — every hook is documented in
+  [`patch/README.md`](patch/README.md), and our injected code is right there
+  ([`patch/SmdashPanel.java`](patch/SmdashPanel.java)). It's small, additive, and reversible.
+- **The stock Screenmate app is NOT redistributed here** — it's proprietary. The patch is applied
+  to *your own* copy on *your own* device. See [Building from source](#building-from-source).
+
+## Building from source
+
+```bash
+git clone https://github.com/PavelDemyanov/screenmate-dash.git
+cd screenmate-dash
+./gradlew assembleDebug
+# → app/build/outputs/apk/debug/app-debug.apk
+```
+
+Requirements: JDK 17 and the Android SDK (set `ANDROID_HOME` or create `local.properties` with
+`sdk.dir=…`). The build uses Gradle 8.9 via the wrapper and AGP 8.5.
+
+Two things are intentionally **not** in this repo, so a from-source build differs from an official
+release:
+
+- **The signing key** (`keystore/`). Official releases are signed with a pinned key so a new build
+  installs straight over the old one; publishing that key would let anyone push a malicious
+  install-over "update" to existing users. Without it, the build falls back to your local debug key
+  — fine for building and running your own copy (you just can't upgrade an official install in
+  place). Forks should sign with their own key.
+- **The patched stock APK** (`app/src/main/assets/patched_stock.apk`) and the bundled **adb key**.
+  A from-source build compiles and runs, but the *Install patch* step needs those assets. To make a
+  working patcher you supply your own patched stock APK (see [`patch/`](patch/)) and generate an adb
+  keypair (`adb keygen`) into `app/src/main/assets/adbkey[.pub]`.
+
+## Repository layout
+
+| Path | What |
+|------|------|
+| `app/src/main/java/app/smdash/` | the overlay app (Compose UI, `OverlayService`, `Patcher`) |
+| `app/src/main/res/` | resources, icons, the redrawn telltale vectors, Martian Mono font |
+| `patch/` | the stock-app patch: our injected code + a description of every hook |
+
+## License
+
+[MIT](LICENSE) — for the ScreenMate Dash source. It does **not** cover the proprietary stock
+Screenmate app, which this project patches but does not redistribute. Martian Mono (in
+`app/src/main/res/font/`) is under the SIL Open Font License 1.1.

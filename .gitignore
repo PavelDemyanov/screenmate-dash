@@ -1,0 +1,31 @@
+# ---- Build outputs ----
+/build/
+/app/build/
+/.gradle/
+/.kotlin/
+local.properties
+
+# ---- Secrets (NEVER commit) ----
+# These are bundled into the OFFICIAL release APKs, but must not live in source:
+# the signing key would let anyone push an install-over "update" to existing users,
+# and the adb keypair is the credential the app uses to talk to the device's root adbd.
+/keystore/
+/app/src/main/assets/adbkey
+/app/src/main/assets/adbkey.pub
+
+# ---- Proprietary (do NOT redistribute) ----
+# The patched stock Screenmate app is Teslogic's closed-source APK. This project only
+# *patches* it at install time on the user's own device; the binary is not shipped here.
+/app/src/main/assets/patched_stock.apk
+
+# ---- Internal working notes ----
+# Contains device/network addresses and stock-app internals — not for the public repo.
+/CLAUDE.md
+
+# ---- Scratch / stray files ----
+/strip_zoom.png
+
+# ---- OS / IDE ----
+.DS_Store
+/.idea/
+*.iml

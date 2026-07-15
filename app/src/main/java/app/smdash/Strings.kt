@@ -1,0 +1,142 @@
+package app.smdash
+
+import android.content.Context
+
+/** UI + patcher-log strings in English (default) and Russian, toggled in MainActivity. */
+data class Strings(
+    val installPatch: String,
+    val removePatch: String,
+    val startOverlay: String,
+    val stopOverlay: String,
+    val tunePositions: String,
+    val dashSettings: String,
+    // transparency settings panel
+    val transpTitle: String,
+    val transpHint: String,
+    val transpLabel: String,
+    val transpAuto: String,
+    val close: String,
+    val previewNote: String,
+    // dashboard style picker
+    val styleTitle: String,
+    val styleArc: String,
+    val styleStack: String,
+    val styleStrip: String,
+    val styleMini: String,
+    // patcher progress (some are prefixes the patcher appends a value to)
+    val connecting: String,
+    val noRootPrefix: String,
+    val rootOk: String,
+    val unpacking: String,
+    val uploading: String,
+    val applying: String,
+    val mountFailed: String,
+    val busy: String,
+    val notFound: String,
+    val corrupt: String,
+    val alreadyActive: String,
+    val done: String,
+    val errorPrefix: String,
+    val revertConnecting: String,
+    val revertNoRoot: String,
+    val removingMounts: String,
+    val layerRemains: String,
+    val revertedPrefix: String,
+    // hard reset (reload both dashboards + the settings menu from memory)
+    val hardReset: String,
+    val hardResetting: String,
+    val hardResetDone: String,
+) {
+    companion object {
+        fun of(ru: Boolean): Strings = if (ru) RU else EN
+
+        /** Persisted language choice (default English). */
+        fun isRu(ctx: Context): Boolean =
+            ctx.getSharedPreferences("ui", Context.MODE_PRIVATE).getBoolean("ru", false)
+
+        fun setRu(ctx: Context, ru: Boolean) =
+            ctx.getSharedPreferences("ui", Context.MODE_PRIVATE).edit().putBoolean("ru", ru).apply()
+
+        val EN = Strings(
+            installPatch = "🔧  Install patch (backup + autostart)",
+            removePatch = "⟲  Remove patch (restore stock)",
+            startOverlay = "▶  Start overlay",
+            stopOverlay = "■  Stop overlay",
+            tunePositions = "⚙  Tune positions",
+            dashSettings = "◧  Dashboard style & transparency",
+            transpTitle = "Dashboard transparency",
+            transpHint = "Drag to fade our dashboard's background. “Auto” follows the car's own setting.",
+            transpLabel = "Transparency",
+            transpAuto = "Auto (car)",
+            close = "Close",
+            previewNote = "Preview — light backdrop simulates the bright screen behind the dashboard",
+            styleTitle = "Dashboard style",
+            styleArc = "Arc",
+            styleStack = "Stack",
+            styleStrip = "Strip",
+            styleMini = "Mini",
+            connecting = "Connecting to local adbd (127.0.0.1:5555)…",
+            noRootPrefix = "✗ No root via adbd: ",
+            rootOk = "✓ root acquired",
+            unpacking = "Unpacking patched stock…",
+            uploading = "Uploading to device (~28 MB)…",
+            applying = "Applying patch (bind-mount)…",
+            mountFailed = "✗ Mount didn't apply",
+            busy = "⏳ Busy — a patch operation is already running.",
+            notFound = "✗ Screenmate stock dashboard not found — nothing to patch on this device.",
+            corrupt = "✗ Patch file integrity check failed — aborted, nothing changed.",
+            alreadyActive = "✓ Patch already active — re-checked everything, all good.",
+            done = "✓ Done — patch active",
+            errorPrefix = "✗ Error: ",
+            revertConnecting = "Connecting to adbd…",
+            revertNoRoot = "✗ no root",
+            removingMounts = "Removing bind-mount(s)…",
+            layerRemains = "✗ a patch layer remains — try again",
+            revertedPrefix = "✓ Patch removed (stock restored). Backup: ",
+            hardReset = "⟳  Hard reset (reload dashboard + menu)",
+            hardResetting = "Hard reset — unloading & reloading dashboard + menu…",
+            hardResetDone = "✓ Reloaded — dashboard + menu restarted from memory",
+        )
+
+        val RU = Strings(
+            installPatch = "🔧  Установить патч (бэкап + автозагрузка)",
+            removePatch = "⟲  Снять патч (вернуть сток)",
+            startOverlay = "▶  Запустить оверлей",
+            stopOverlay = "■  Остановить оверлей",
+            tunePositions = "⚙  Настройка позиций",
+            dashSettings = "◧  Стиль и прозрачность дашборда",
+            transpTitle = "Прозрачность дашборда",
+            transpHint = "Тяни, чтобы сделать фон нашего дашборда прозрачнее. «Авто» — берёт настройку из машины.",
+            transpLabel = "Прозрачность",
+            transpAuto = "Авто (из машины)",
+            close = "Закрыть",
+            previewNote = "Превью — светлый фон имитирует яркий экран за дашбордом",
+            styleTitle = "Стиль дашборда",
+            styleArc = "Дуга",
+            styleStack = "Стек",
+            styleStrip = "Полоса",
+            styleMini = "Мини",
+            connecting = "Подключаюсь к локальному adbd (127.0.0.1:5555)…",
+            noRootPrefix = "✗ Нет root через adbd: ",
+            rootOk = "✓ root получен",
+            unpacking = "Распаковываю пропатченный сток…",
+            uploading = "Загружаю на устройство (≈28 МБ)…",
+            applying = "Накладываю патч (bind-mount)…",
+            mountFailed = "✗ Маунт не применился",
+            busy = "⏳ Занято — операция уже выполняется.",
+            notFound = "✗ Стоковый дашборд Screenmate не найден — на этом устройстве патчить нечего.",
+            corrupt = "✗ Проверка целостности патча не прошла — отменено, ничего не изменено.",
+            alreadyActive = "✓ Патч уже активен — всё перепроверено, порядок.",
+            done = "✓ Готово — патч активен",
+            errorPrefix = "✗ Ошибка: ",
+            revertConnecting = "Подключаюсь к adbd…",
+            revertNoRoot = "✗ нет root",
+            removingMounts = "Снимаю bind-mount(ы)…",
+            layerRemains = "✗ остался слой патча — попробуй ещё раз",
+            revertedPrefix = "✓ Патч снят (сток восстановлен). Бэкап: ",
+            hardReset = "⟳  Полный сброс (перезагрузить дашборд + меню)",
+            hardResetting = "Полный сброс — выгружаю и перезагружаю дашборд + меню…",
+            hardResetDone = "✓ Перезагружено — дашборд и меню перезапущены из памяти",
+        )
+    }
+}
