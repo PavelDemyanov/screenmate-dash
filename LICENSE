@@ -19,15 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This license covers the source code of ScreenMate Dash itself.
-
-It does NOT cover, and this repository does NOT redistribute, the stock Tesla
-Screenmate application (`co.teslogic.screenmate`), which is proprietary software
-owned by its respective authors. ScreenMate Dash patches that app on the user's
-own device at install time; you must supply your own copy of the stock app.
-
-The bundled Martian Mono font (app/src/main/res/font/) is licensed separately
-under the SIL Open Font License 1.1.

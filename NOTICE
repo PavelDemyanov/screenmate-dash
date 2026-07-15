@@ -1,0 +1,14 @@
+ScreenMate Dash
+Copyright (c) 2026 Pavel Demyanov
+
+The MIT license (see LICENSE) covers the source code of ScreenMate Dash itself.
+
+Third-party / out-of-scope components:
+
+- Stock Tesla Screenmate app (`co.teslogic.screenmate`): proprietary software owned
+  by its respective authors. This project PATCHES that app on the user's own device
+  at install time; it does NOT include or redistribute it. You must supply your own
+  copy of the stock app.
+
+- Martian Mono font (app/src/main/res/font/): licensed under the SIL Open Font
+  License 1.1.
