@@ -126,12 +126,28 @@ object Patcher {
                 dadb.sh("umount -l '$target' 2>/dev/null")
                 log(s.mountFailed); return false
             }
-            // Restart the stock AND the settings host so BOTH reload the patched dex. The injected
-            // SM DASH panel (classes4.dex) is mapped by com.android.settings too, so without force-stopping
-            // it the new dashboard picker doesn't appear until a reboot. Then reopen the stock settings.
-            // (Activity restart, not a service — FGS-from-bg is blocked.)
+            // Reload the patched dex WITHOUT popping the settings UI on every boot (users complained
+            // the settings page slides open on restart — it broke their MacroDroid automations).
+            // Force-stop the stock (its dashboard + settings) and com.android.settings so both drop the
+            // stale dex; the injected SM DASH panel then re-maps whenever the user next opens settings.
+            // We can't bring the dashboard back with `am start …MainActivity` — that IS the stock's
+            // launcher = the settings screen, so it foregrounds the panel every boot (the exact bug) —
+            // and `am start-foreground-service` is blocked by Android 14's FGS-from-background rule.
+            // Instead re-deliver BOOT_COMPLETED to the stock's own boot receiver, which starts
+            // `.services.AppService` as a foreground service (allowed from a boot context): the dashboard
+            // process comes back RESIDENT and broadcasting with NO visible Activity, and the settings
+            // process stays available — the on-screen gear opens it on demand.
+            // --include-stopped-packages is required because force-stop left the package stopped.
             dadb.sh("am force-stop $STOCK_PKG; am force-stop com.android.settings")
-            dadb.sh("am start --user 10 -n $STOCK_PKG/.settings.ui.activity.MainActivity")
+            dadb.sh("am broadcast --user 10 -a android.intent.action.BOOT_COMPLETED -p $STOCK_PKG --include-stopped-packages")
+            // Safety net: if the boot broadcast didn't spawn the stock (protected-broadcast refusal /
+            // receiver missing / FGS refused), fall back to launching the activity so the dashboard still
+            // comes up. That fallback DOES show settings — but a working dashboard beats a blank one, and
+            // it bounds the worst case to the OLD behaviour rather than a data-less boot.
+            Thread.sleep(1500)
+            if (dadb.sh("pidof $STOCK_PKG").trim().isEmpty()) {
+                dadb.sh("am start --user 10 -n $STOCK_PKG/.settings.ui.activity.MainActivity")
+            }
 
             ensureGrantsAndStart(dadb)
             log(s.done)
