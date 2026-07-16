@@ -87,6 +87,7 @@ private fun glowSpec(style: DashStyle) = when (style) {
 
 /** the linear speed bar tops out here (prototype value; the arc's 230 is never reached anyway) */
 private const val BAR_MAX = 160f
+private const val BAR_MAX_MPH = 100f    // ≈160 km/h — same physical full-scale when the car is in mph
 
 /** digit type: 80px bold. The LAYOUT box is pinned to 64dp by [SpeedDigits] (the prototype's
  *  line-height:.8); the text itself is centered in it with font padding stripped, so the digit
@@ -157,9 +158,9 @@ private fun SpeedDigits(speed: Int, liftDp: Float = -11f) {
 }
 
 @Composable
-private fun KmhLabel(tracking: Float = 3.7f) {
+private fun KmhLabel(mph: Boolean, tracking: Float = 3.7f) {
     BasicText(
-        "KM/H",
+        if (mph) "MPH" else "KM/H",
         // never wrap — in STRIP the col1 is sized by IntrinsicSize.Min, which would otherwise break
         // "KM/H" onto two lines ("KM/" + "H") and collapse the column width
         maxLines = 1,
@@ -171,8 +172,8 @@ private fun KmhLabel(tracking: Float = 3.7f) {
 
 /** thin linear speed bar (replaces the arc in the compact styles) */
 @Composable
-private fun SpeedBar(speed: Int, modifier: Modifier = Modifier) {
-    val pct = (speed / BAR_MAX).coerceIn(0f, 1f)
+private fun SpeedBar(speed: Int, mph: Boolean, modifier: Modifier = Modifier) {
+    val pct = (speed / (if (mph) BAR_MAX_MPH else BAR_MAX)).coerceIn(0f, 1f)
     Box(modifier.height(4.dp).clip(RoundedCornerShape(4.dp)).background(BarTrack)) {
         Box(Modifier.fillMaxHeight().fillMaxWidth(pct).clip(RoundedCornerShape(4.dp)).background(BarFill))
     }
@@ -401,8 +402,8 @@ fun StackTile(state: DashboardState) {
         Abs(200.5f, 28f) { Box(Modifier.size(width = 1.dp, height = 18.dp).background(Color(0xFF2C2D31))) }
         Abs(213.5f, 17f + t.limit) { if (state.limit != null) SpeedLimitSign(state.limit, 40f) }
         Abs(70.5f, 71f + t.digit) { Box(Modifier.width(159.dp), contentAlignment = Alignment.Center) { SpeedDigits(state.speed) } }
-        Abs(19f, 143f + t.kmh) { Box(Modifier.width(262.dp), contentAlignment = Alignment.Center) { KmhLabel() } }
-        Abs(19f, 169f) { SpeedBar(state.speed, Modifier.width(262.dp)) }
+        Abs(19f, 143f + t.kmh) { Box(Modifier.width(262.dp), contentAlignment = Alignment.Center) { KmhLabel(state.mph) } }
+        Abs(19f, 169f) { SpeedBar(state.speed, state.mph, Modifier.width(262.dp)) }
         Abs(19f, 187f + t.gear) { PrndRow(state.gear) }
         // space-between row: the wider 12h time block shifts the middle (battery) item left (measured)
         Abs(if (state.ampm.isEmpty()) 137f else 125.9f, 187f + t.batt) { BattText(state.battery) }
@@ -422,8 +423,8 @@ fun StripTile(state: DashboardState) {
         // top, not the line-box top; our SpeedDigits puts the glyph ~41dp above its row → place at 57
         // so the glyph lands at ~16dp like the prototype (else it clips over the short strip's top).
         Abs(21f, 37f + t.digit) { Box(Modifier.width(159.dp), contentAlignment = Alignment.CenterEnd) { SpeedDigits(state.speed) } }
-        Abs(190f, 70f + t.kmh) { KmhLabel(tracking = 3.1f) }
-        Abs(21f, 93f) { SpeedBar(state.speed, Modifier.width(207.7.dp)) }
+        Abs(190f, 70f + t.kmh) { KmhLabel(state.mph, tracking = 3.1f) }
+        Abs(21f, 93f) { SpeedBar(state.speed, state.mph, Modifier.width(207.7.dp)) }
         Abs(244.7f, 17f) { Box(Modifier.size(width = 1.dp, height = 80.dp).background(Hairline)) }
         Abs(261.7f, 28.5f) { IconSlot(24f) { ApIcon(state.autopilot, 22f) } }
         Abs(296.7f, 28.5f) { IconSlot(24f) { if (state.belt) VIcon(32f, 32f, BELT_PATHS, Modifier.size(19.dp)) } }
@@ -452,7 +453,7 @@ fun MiniTile(state: DashboardState) {
         Abs(17f, 18f + t.gear) { GearPill(state.gear, sizeDp = 32f, radiusDp = 9f) }
         Abs(177f, 15f + t.limit) { if (state.limit != null) SpeedLimitSign(state.limit, 38f) }
         Abs(36.5f, 63f + t.digit) { Box(Modifier.width(159.dp), contentAlignment = Alignment.Center) { SpeedDigits(state.speed) } }
-        Abs(17f, 135f + t.kmh) { Box(Modifier.width(198.dp), contentAlignment = Alignment.Center) { KmhLabel() } }
+        Abs(17f, 135f + t.kmh) { Box(Modifier.width(198.dp), contentAlignment = Alignment.Center) { KmhLabel(state.mph) } }
         Abs(56f, 161f) { IconSlot(22f) { ApIcon(state.autopilot, 20f) } }
         Abs(88f, 161f) { IconSlot(22f) { if (state.belt) VIcon(32f, 32f, BELT_PATHS, Modifier.size(17.dp)) } }
         Abs(120f, 161f) { IconSlot(22f) { if (state.heat) VIcon(24f, 24f, HEAT_PATHS, Modifier.size(18.dp)) } }

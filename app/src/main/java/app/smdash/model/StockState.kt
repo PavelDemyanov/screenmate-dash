@@ -78,8 +78,15 @@ fun parseStockState(s: String): DashboardState {
 
     val (clock, ampm) = splitClock(field(s, "time") ?: "")
 
+    // speedUnits is the stock's DISPLAY string: "MPH" or "KPH" — except our patched stock
+    // replaces the KPH literal with "КМ/Ч", so match MPH and treat everything else as metric.
+    val mph = field(s, "speedUnits")?.uppercase()?.contains("MPH") == true
+
     return DashboardState(
         speed = speed,
+        mph = mph,
+        // gauge full-scale follows the units (230 km/h ≈ 145 mph); values arrive pre-converted
+        speedMax = if (mph) 145 else 230,
         time = clock,
         ampm = ampm,
         battery = battery.coerceIn(0, 100),

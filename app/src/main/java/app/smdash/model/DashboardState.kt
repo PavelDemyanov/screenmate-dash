@@ -4,7 +4,10 @@ package app.smdash.model
  *  patched stock app later (B1: broadcast of the real DashboardState). */
 data class DashboardState(
     val speed: Int = 0,
-    val maxKmh: Int = 230,          // arc full-scale (variant 03)
+    // true when the car shows mph (stock speedUnits=MPH) — flips the unit label and the gauge
+    // full-scale; speed/limit values arrive already converted by the car, we never convert.
+    val mph: Boolean = false,
+    val speedMax: Int = 230,        // arc full-scale in the CAR's units (230 km/h; 145 when mph)
     val time: String = "14:12",
     // 12-hour marker ("AM"/"PM") when the car clock is in 12h mode; "" in 24h mode. Split off the
     // stock's time string ("7:01 pm") in parseStockState — rendered as a small dim suffix per the

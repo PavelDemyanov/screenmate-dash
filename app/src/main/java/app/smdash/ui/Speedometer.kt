@@ -191,7 +191,7 @@ fun DashboardTile(state: DashboardState, tuning: Tuning = Tuning(), modifier: Mo
                     val diam = 176f * s
                     val sw = tuning.arcStroke * s
                     drawArc(ArcTrack, 150f, 240f, false, topLeft, Size(diam, diam), style = Stroke(sw, cap = StrokeCap.Round))
-                    val pct = (state.speed.toFloat() / state.maxKmh).coerceIn(0f, 1f)
+                    val pct = (state.speed.toFloat() / state.speedMax).coerceIn(0f, 1f)
                     drawArc(accent, 150f, 240f * pct, false, topLeft, Size(diam, diam), style = Stroke(sw, cap = StrokeCap.Round))
                 }
 
@@ -205,7 +205,7 @@ fun DashboardTile(state: DashboardState, tuning: Tuning = Tuning(), modifier: Mo
                         style = TextStyle(fontFamily = MartianMono, fontWeight = FontWeight.Bold, fontSize = tuning.digitSize.sp, color = DigitCol, textAlign = TextAlign.Center),
                     )
                     Spacer(Modifier.height(tuning.unitGap.dp))
-                    BasicText("KM/H", style = TextStyle(fontFamily = MartianMono, fontSize = 11.sp, letterSpacing = 4.sp, color = LabelCol))
+                    BasicText(if (state.mph) "MPH" else "KM/H", style = TextStyle(fontFamily = MartianMono, fontSize = 11.sp, letterSpacing = 4.sp, color = LabelCol))
                 }
 
                 // speed-limit sign (over the digit, upper area)
