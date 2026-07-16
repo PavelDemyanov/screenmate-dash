@@ -24,6 +24,7 @@ local.properties
 
 # ---- Scratch / stray files ----
 /strip_zoom.png
+/.build-cache/
 
 # ---- OS / IDE ----
 .DS_Store
