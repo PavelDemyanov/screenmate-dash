@@ -34,7 +34,7 @@ object Patcher {
     // КМ/Ч (both const-string sites) + smEmit (DashboardState broadcast + backstop hide) +
     // SmHideObserver (instant hide) + SmdashPanel settings-block (now rides in classes4.dex, since
     // stock v1.8 already ships its own classes3.dex). Rebuild → update this hash.
-    private const val PATCHED_MD5 = "e549778436121de5e83bc959d4379873"
+    const val PATCHED_MD5 = "e549778436121de5e83bc959d4379873"
 
     /** guards apply()/revert() against overlapping runs (rapid taps, boot firing mid-tap, …) */
     private val running = AtomicBoolean(false)
@@ -160,6 +160,44 @@ object Patcher {
             runCatching { dadb?.close() }
             running.set(false)
         }
+    }
+
+    /**
+     * Read-only patch/stock diagnostics over the local root adbd — for the in-app "Отправить отчёт".
+     * Never mutates anything. Returns a map (best-effort; missing keys stay null on error) with:
+     * whether the patched apk is actually mounted (md5 vs [PATCHED_MD5]), the stock Screenmate
+     * version, whether our STATE broadcast appears in logcat, and a short relevant log tail.
+     * Runs blocking — call off the main thread.
+     */
+    fun collectPatchDiag(ctx: Context): Map<String, Any?> {
+        val out = linkedMapOf<String, Any?>(
+            "expectedMd5" to PATCHED_MD5, "mounted" to null, "match" to null, "targetMd5" to null,
+            "stockVersion" to null, "stockPath" to null, "broadcastSeenInLog" to null, "logTail" to null,
+        )
+        var dadb: Dadb? = null
+        try {
+            dadb = Dadb.create("127.0.0.1", 5555, keyPair(ctx))
+            val target = dadb.stockApkPath()
+            out["stockPath"] = target.ifEmpty { null }
+            if (target.isNotEmpty()) {
+                val md5 = dadb.md5(target)
+                out["targetMd5"] = md5.ifEmpty { null }
+                out["mounted"] = md5.isNotEmpty()
+                out["match"] = md5 == PATCHED_MD5
+            }
+            out["stockVersion"] = dadb.sh("dumpsys package $STOCK_PKG 2>/dev/null | grep -m1 versionName")
+                .substringAfter("versionName=", "").trim().ifEmpty { null }
+            val log = dadb.sh("logcat -d -t 800 2>/dev/null")
+            out["broadcastSeenInLog"] = log.contains("app.smdash.STATE")
+            out["logTail"] = log.lineSequence()
+                .filter { l -> l.contains("SMPATCH") || l.contains("app.smdash") || l.contains("smEmit") || l.contains("AndroidRuntime") }
+                .toList().takeLast(40).joinToString("\n").take(4000).ifEmpty { null }
+        } catch (e: Exception) {
+            out["error"] = e.message
+        } finally {
+            runCatching { dadb?.close() }
+        }
+        return out
     }
 
     /** Grant our overlay its perms + show it. Idempotent — safe to call every time. */

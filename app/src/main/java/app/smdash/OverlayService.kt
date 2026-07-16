@@ -22,6 +22,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -67,6 +68,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 /** Foreground service: draws the dashboard as a draggable system overlay over the
@@ -107,7 +109,7 @@ class OverlayService : Service() {
     private var mockJob: Job? = null
     /** post-forced-start re-assert (boot race guard); cancelled on a new start / switch-to-stock */
     private var reassertJob: Job? = null
-    private var realSeen = false // becomes true once the stock hook sends real state
+    // realSeen / lastRealAtMs / mockActive live in the companion — ReportCollector reads them.
 
     // turn-signal hold (data layer). isIndicator{Left,Right} arrives as a brief ~20ms pulse once per
     // ~720ms blink cycle — shorter than a Compose frame, so StateFlow + collectAsState would coalesce
@@ -151,6 +153,8 @@ class OverlayService : Service() {
                 ACTION_STATE -> {
                     val s = i.getStringExtra("s") ?: return
                     realSeen = true
+                    lastRealAtMs = SystemClock.elapsedRealtime()
+                    mockActive = false
                     mockJob?.cancel() // real data arrived → stop the emulator demo loop
                     runCatching { pushState(parseStockState(s)) }
                 }
@@ -172,8 +176,33 @@ class OverlayService : Service() {
                 // master toggle OFF in the settings panel → hide BOTH dashboards
                 ACTION_HIDE_ALL -> hideBoth()
                 ACTION_SET_TRANSP -> setTranspOverride(i.getFloatExtra("v", -1f))
+                ACTION_SEND_REPORT -> handleSendReport(i.getStringExtra("comment"))
             }
         }
+    }
+
+    /** Panel tapped "Отправить отчёт": collect diagnostics off-thread, POST them, and mirror the
+     *  result into Settings.Global so the panel can show the report id (+ a Toast on the box). */
+    private fun handleSendReport(comment: String?) {
+        writeReportGlobal(ReportCollector.GLOBAL_REPORT_STATUS, "sending")
+        runCatching { Toast.makeText(this, "Отправляю отчёт…", Toast.LENGTH_SHORT).show() }
+        scope.launch(Dispatchers.IO) {
+            val id = runCatching { ReportCollector.send(this@OverlayService, comment) }.getOrNull()
+            withContext(Dispatchers.Main) {
+                if (id != null) {
+                    writeReportGlobal(ReportCollector.GLOBAL_REPORT_ID, id)
+                    writeReportGlobal(ReportCollector.GLOBAL_REPORT_STATUS, "ok")
+                    runCatching { Toast.makeText(this@OverlayService, "Отчёт отправлен: #$id", Toast.LENGTH_LONG).show() }
+                } else {
+                    writeReportGlobal(ReportCollector.GLOBAL_REPORT_STATUS, "err")
+                    runCatching { Toast.makeText(this@OverlayService, "Не удалось отправить отчёт", Toast.LENGTH_LONG).show() }
+                }
+            }
+        }
+    }
+
+    private fun writeReportGlobal(key: String, value: String) {
+        runCatching { Settings.Global.putString(contentResolver, key, value) }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -229,7 +258,7 @@ class OverlayService : Service() {
             receiver,
             IntentFilter().apply {
                 addAction(ACTION_STATE); addAction(ACTION_SHOW_OURS); addAction(ACTION_SHOW_STOCK)
-                addAction(ACTION_HIDE_ALL); addAction(ACTION_SET_TRANSP)
+                addAction(ACTION_HIDE_ALL); addAction(ACTION_SET_TRANSP); addAction(ACTION_SEND_REPORT)
             },
             Context.RECEIVER_EXPORTED,
         )
@@ -271,6 +300,7 @@ class OverlayService : Service() {
 
         // demo data until the stock hook sends real state (so the emulator shows a live tile);
         // the mock mirrors the system 12/24h setting so the AM/PM layout is testable off-car
+        mockActive = true
         mockJob = scope.launch {
             mockDashboardFlow(is24h = DateFormat.is24HourFormat(this@OverlayService))
                 .collect { if (!realSeen) DashStore.flow.value = it }
@@ -750,6 +780,13 @@ class OverlayService : Service() {
 
     companion object {
         const val ACTION_STATE = "app.smdash.STATE"
+        const val ACTION_SEND_REPORT = "app.smdash.SENDREPORT"
+
+        /** Data-flow state read by [ReportCollector] for the diagnostic report. Written on the main
+         *  thread, read from an IO thread → @Volatile. */
+        @Volatile var realSeen = false
+        @Volatile var lastRealAtMs = 0L
+        @Volatile var mockActive = false
         const val ACTION_SHOW_OURS = "app.smdash.SHOWOURS"
         const val ACTION_SHOW_STOCK = "app.smdash.SHOWSTOCK"
         /** settings-panel master toggle OFF → hide BOTH dashboards (ours removed + stock flag raised) */
