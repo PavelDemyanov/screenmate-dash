@@ -12,8 +12,8 @@ android {
         applicationId = "app.smdash"
         minSdk = 29
         targetSdk = 34
-        versionCode = 21
-        versionName = "0.21"
+        versionCode = 23
+        versionName = "0.23"
     }
 
     // Official releases are signed with a pinned key (keystore/smdash.keystore) so a new build

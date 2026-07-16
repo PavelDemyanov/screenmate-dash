@@ -59,5 +59,15 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="tesla_dashboard_overlay" />
         </service>
+
+        <!-- applies the stock patch off the broadcast thread (long push+mount → no ANR) -->
+        <service
+            android:name=".PatchService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="tesla_dashboard_overlay" />
+        </service>
     </application>
 </manifest>

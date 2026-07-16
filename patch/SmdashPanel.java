@@ -73,6 +73,9 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     static final String A_HIDE = "app.smdash.HIDEALL";
     static final String G_STYLE = "smdash_style";
     static final String G_MASTER = "smdash_master";
+    static final String A_REPORT = "app.smdash.SENDREPORT"; // panel → app: collect + post a diag report
+    static final String G_REPORT_ID = "smdash_report_id";     // app writes the resulting id here
+    static final String G_REPORT_STATUS = "smdash_report_status"; // "sending" | "ok" | "err"
 
     static final String[] KEYS = {"stock", "arc", "stack", "strip", "mini"};
     static final String[] LABELS = {"Stock", "Arc", "Stack", "Strip", "Mini"};
@@ -87,6 +90,7 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     static final int VER_RED = 0xFFF2564B;    // app-version text
     static final String RELEASES_URL = "https://github.com/PavelDemyanov/screenmate-dash/releases";
     static final String TAG_GITHUB = "__smdash_github__"; // link tag, routed through onClick(this)
+    static final String TAG_REPORT = "__smdash_report__"; // "send report" button tag
 
     final Context ctx;
     final float dens;
@@ -96,6 +100,7 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     Switch masterSw;
     LinearLayout thumbRow;
     TextView transpPctLabel;
+    TextView reportStatus; // shows "Отправка…" / "✓ Отправлено: #ID" / "Ошибка отправки"
     GlobalObserver observer;
     boolean observerReg;
     boolean syncing; // guards masterSw.setChecked() during a live sync so it doesn't re-broadcast
@@ -280,6 +285,46 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
         sblp.topMargin = dp(2);
         sb.setLayoutParams(sblp);
         block.addView(sb);
+
+        // --- diagnostic report: "Отправить отчёт" button + a status line ---
+        // The panel can't write Settings.Global (no WRITE_SECURE_SETTINGS), so tapping just broadcasts
+        // app.smdash.SENDREPORT; our app collects diagnostics, POSTs them, and writes the resulting id
+        // into Settings.Global (smdash_report_id/status), which our observer reflects here.
+        TextView rlabel = label("Диагностика", 13, SUB, false, 0f);
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp.topMargin = dp(16);
+        rlabel.setLayoutParams(rlp);
+        block.addView(rlabel);
+
+        LinearLayout rrow = new LinearLayout(ctx);
+        rrow.setOrientation(LinearLayout.HORIZONTAL);
+        rrow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams rrp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rrp.topMargin = dp(8);
+        rrow.setLayoutParams(rrp);
+
+        TextView reportBtn = label("Отправить отчёт", 13, INK, false, 0f);
+        reportBtn.setTypeface(Typeface.DEFAULT_BOLD);
+        reportBtn.setPadding(dp(14), dp(9), dp(14), dp(9));
+        GradientDrawable rbg = new GradientDrawable();
+        rbg.setColor(CARD_BG);
+        rbg.setCornerRadius(dp(10));
+        rbg.setStroke(dp(1), CARD_EDGE);
+        reportBtn.setBackground(rbg);
+        reportBtn.setTag(TAG_REPORT);
+        reportBtn.setOnClickListener(this);
+        rrow.addView(reportBtn);
+
+        reportStatus = label("", 12, SUB, false, 0f);
+        LinearLayout.LayoutParams rsp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rsp.leftMargin = dp(12);
+        reportStatus.setLayoutParams(rsp);
+        rrow.addView(reportStatus);
+        block.addView(rrow);
+        syncReport(); // reflect any status left from a previous send
 
         // divider under our block
         View div = new View(ctx);
@@ -499,6 +544,7 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     public void onClick(View v) {
         Object tag = v.getTag();
         if (TAG_GITHUB.equals(tag)) { openUrl(RELEASES_URL); return; } // link works regardless of master
+        if (TAG_REPORT.equals(tag)) { sendReport(); return; }         // report works regardless of master
         if (!master) return; // thumbnails locked while the master toggle is off
         if (!(tag instanceof String)) return;
         selected = (String) tag;
@@ -533,6 +579,8 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
             ContentResolver cr = ctx.getContentResolver();
             cr.registerContentObserver(Settings.Global.getUriFor(G_STYLE), false, observer);
             cr.registerContentObserver(Settings.Global.getUriFor(G_MASTER), false, observer);
+            cr.registerContentObserver(Settings.Global.getUriFor(G_REPORT_ID), false, observer);
+            cr.registerContentObserver(Settings.Global.getUriFor(G_REPORT_STATUS), false, observer);
             observerReg = true;
             syncFromGlobal(); // pick up anything that changed while we were detached
         } catch (Throwable t) {
@@ -559,6 +607,7 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
             syncing = false;
         }
         applyMasterDim();
+        syncReport();
     }
 
     @Override
@@ -587,6 +636,34 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     void broadcastSelection() {
         if ("stock".equals(selected)) send(A_STOCK, null);
         else send(A_OURS, selected);
+    }
+
+    /** Ask our app to collect + POST a diagnostic report. We can't write globals, so we only
+     *  broadcast + show an optimistic "Отправка…"; the app writes smdash_report_status/id and our
+     *  observer updates the line to "✓ Отправлено: #ID" (or an error). */
+    void sendReport() {
+        if (reportStatus != null) { reportStatus.setText("Отправка…"); reportStatus.setTextColor(SUB); }
+        send(A_REPORT, null);
+    }
+
+    /** Reflect the app's report result (from Settings.Global) into the status line. */
+    void syncReport() {
+        if (reportStatus == null) return;
+        String st = null, id = null;
+        try {
+            st = Settings.Global.getString(ctx.getContentResolver(), G_REPORT_STATUS);
+            id = Settings.Global.getString(ctx.getContentResolver(), G_REPORT_ID);
+        } catch (Throwable ignored) {
+        }
+        if ("sending".equals(st)) {
+            reportStatus.setText("Отправка…"); reportStatus.setTextColor(SUB);
+        } else if ("ok".equals(st) && id != null && !id.isEmpty()) {
+            reportStatus.setText("✓ Отправлено: #" + id); reportStatus.setTextColor(ACCENT);
+        } else if ("err".equals(st)) {
+            reportStatus.setText("Ошибка отправки"); reportStatus.setTextColor(VER_RED);
+        } else {
+            reportStatus.setText("");
+        }
     }
 
     void send(String action, String style) {
