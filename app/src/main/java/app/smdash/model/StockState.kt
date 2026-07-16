@@ -78,9 +78,18 @@ fun parseStockState(s: String): DashboardState {
 
     val (clock, ampm) = splitClock(field(s, "time") ?: "")
 
-    // speedUnits is the stock's DISPLAY string: "MPH" or "KPH" — except our patched stock
-    // replaces the KPH literal with "КМ/Ч", so match MPH and treat everything else as metric.
-    val mph = field(s, "speedUnits")?.uppercase()?.contains("MPH") == true
+    // Miles vs kilometres. The stock's `speedUnits` field is UNRELIABLE — it sits at its default
+    // "MPH" whenever the car is parked (the VHAL speed-units observer only fires once moving), so a
+    // metric car parked would wrongly show MPH. `batteryDistanceUnit` ("km"/"mi") is the car's actual
+    // distance setting and is populated even when parked — and on Tesla the speed unit and distance
+    // unit are ONE setting, so it's the authoritative source. Prefer it; fall back to speedUnits only
+    // if it's absent. Values are already in the car's unit — we only pick the label + gauge scale.
+    val distUnit = field(s, "batteryDistanceUnit")?.lowercase()?.trim()
+    val mph = when (distUnit) {
+        "mi", "mile", "miles" -> true
+        "km", "km.", "kilometer", "kilometers" -> false
+        else -> field(s, "speedUnits")?.uppercase()?.contains("MPH") == true
+    }
 
     return DashboardState(
         speed = speed,
