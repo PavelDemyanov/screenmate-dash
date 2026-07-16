@@ -33,9 +33,9 @@ object Patcher {
     // md5 of assets/patched_stock.apk — the v1.8-based build:
     // КМ/Ч (both const-string sites) + smEmit (DashboardState broadcast + backstop hide) +
     // SmHideObserver (instant hide) + SmdashPanel settings-block (classes4.dex, since stock v1.8
-    // already ships its own classes3.dex) — now with the "Отправить отчёт" (SENDREPORT) button.
-    // Rebuild → update this hash. Prior: e549778… (pre-report-button).
-    const val PATCHED_MD5 = "f05e05a46dfcbaf1f7287105c6f47646"
+    // already ships its own classes3.dex) — now with the "Send report" (SENDREPORT) button.
+    // Rebuild → update this hash. Prior: e549778… (pre-report-button), f05e05… (RU panel text).
+    const val PATCHED_MD5 = "d2a5c01f883466f2ca4bd6be1609094c"
 
     /** guards apply()/revert() against overlapping runs (rapid taps, boot firing mid-tap, …) */
     private val running = AtomicBoolean(false)

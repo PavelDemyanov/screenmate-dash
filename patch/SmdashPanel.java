@@ -100,7 +100,7 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     Switch masterSw;
     LinearLayout thumbRow;
     TextView transpPctLabel;
-    TextView reportStatus; // shows "Отправка…" / "✓ Отправлено: #ID" / "Ошибка отправки"
+    TextView reportStatus; // shows "Sending…" / "✓ Sent: #ID" / "Send failed"
     GlobalObserver observer;
     boolean observerReg;
     boolean syncing; // guards masterSw.setChecked() during a live sync so it doesn't re-broadcast
@@ -286,11 +286,11 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
         sb.setLayoutParams(sblp);
         block.addView(sb);
 
-        // --- diagnostic report: "Отправить отчёт" button + a status line ---
+        // --- diagnostic report: "Send report" button + a status line ---
         // The panel can't write Settings.Global (no WRITE_SECURE_SETTINGS), so tapping just broadcasts
         // app.smdash.SENDREPORT; our app collects diagnostics, POSTs them, and writes the resulting id
         // into Settings.Global (smdash_report_id/status), which our observer reflects here.
-        TextView rlabel = label("Диагностика", 13, SUB, false, 0f);
+        TextView rlabel = label("Diagnostics", 13, SUB, false, 0f);
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         rlp.topMargin = dp(16);
@@ -305,7 +305,7 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
         rrp.topMargin = dp(8);
         rrow.setLayoutParams(rrp);
 
-        TextView reportBtn = label("Отправить отчёт", 13, INK, false, 0f);
+        TextView reportBtn = label("Send report", 13, INK, false, 0f);
         reportBtn.setTypeface(Typeface.DEFAULT_BOLD);
         reportBtn.setPadding(dp(14), dp(9), dp(14), dp(9));
         GradientDrawable rbg = new GradientDrawable();
@@ -639,10 +639,10 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     }
 
     /** Ask our app to collect + POST a diagnostic report. We can't write globals, so we only
-     *  broadcast + show an optimistic "Отправка…"; the app writes smdash_report_status/id and our
-     *  observer updates the line to "✓ Отправлено: #ID" (or an error). */
+     *  broadcast + show an optimistic "Sending…"; the app writes smdash_report_status/id and our
+     *  observer updates the line to "✓ Sent: #ID" (or an error). */
     void sendReport() {
-        if (reportStatus != null) { reportStatus.setText("Отправка…"); reportStatus.setTextColor(SUB); }
+        if (reportStatus != null) { reportStatus.setText("Sending…"); reportStatus.setTextColor(SUB); }
         send(A_REPORT, null);
     }
 
@@ -656,11 +656,11 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
         } catch (Throwable ignored) {
         }
         if ("sending".equals(st)) {
-            reportStatus.setText("Отправка…"); reportStatus.setTextColor(SUB);
+            reportStatus.setText("Sending…"); reportStatus.setTextColor(SUB);
         } else if ("ok".equals(st) && id != null && !id.isEmpty()) {
-            reportStatus.setText("✓ Отправлено: #" + id); reportStatus.setTextColor(ACCENT);
+            reportStatus.setText("✓ Sent: #" + id); reportStatus.setTextColor(ACCENT);
         } else if ("err".equals(st)) {
-            reportStatus.setText("Ошибка отправки"); reportStatus.setTextColor(VER_RED);
+            reportStatus.setText("Send failed"); reportStatus.setTextColor(VER_RED);
         } else {
             reportStatus.setText("");
         }

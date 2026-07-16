@@ -181,21 +181,21 @@ class OverlayService : Service() {
         }
     }
 
-    /** Panel tapped "Отправить отчёт": collect diagnostics off-thread, POST them, and mirror the
+    /** Panel tapped "Send report": collect diagnostics off-thread, POST them, and mirror the
      *  result into Settings.Global so the panel can show the report id (+ a Toast on the box). */
     private fun handleSendReport(comment: String?) {
         writeReportGlobal(ReportCollector.GLOBAL_REPORT_STATUS, "sending")
-        runCatching { Toast.makeText(this, "Отправляю отчёт…", Toast.LENGTH_SHORT).show() }
+        runCatching { Toast.makeText(this, "Sending report…", Toast.LENGTH_SHORT).show() }
         scope.launch(Dispatchers.IO) {
             val id = runCatching { ReportCollector.send(this@OverlayService, comment) }.getOrNull()
             withContext(Dispatchers.Main) {
                 if (id != null) {
                     writeReportGlobal(ReportCollector.GLOBAL_REPORT_ID, id)
                     writeReportGlobal(ReportCollector.GLOBAL_REPORT_STATUS, "ok")
-                    runCatching { Toast.makeText(this@OverlayService, "Отчёт отправлен: #$id", Toast.LENGTH_LONG).show() }
+                    runCatching { Toast.makeText(this@OverlayService, "Report sent: #$id", Toast.LENGTH_LONG).show() }
                 } else {
                     writeReportGlobal(ReportCollector.GLOBAL_REPORT_STATUS, "err")
-                    runCatching { Toast.makeText(this@OverlayService, "Не удалось отправить отчёт", Toast.LENGTH_LONG).show() }
+                    runCatching { Toast.makeText(this@OverlayService, "Couldn't send report", Toast.LENGTH_LONG).show() }
                 }
             }
         }
