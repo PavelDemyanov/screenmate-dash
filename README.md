@@ -42,12 +42,20 @@ Five quick taps on whichever dashboard is showing advance to the next one.
 
 ## Install
 
-1. Download **SMDashPatcher.apk** from [Releases](../../releases).
-2. On the Screenmate, allow installation from unknown sources and install the APK.
-3. Open the app → **Install patch**.
-4. A system **"Allow debugging?"** dialog appears on the Screenmate — tap
+1. **Enable ADB on the Screenmate first (one time).** The app applies the patch through the
+   Screenmate's *own* local ADB, so it has to be turned on:
+   - Open the Screenmate's system Settings → **About**, and tap **Build number** 7 times until it
+     says *"You are now a developer."*
+   - Go to **Developer options** and turn on **USB debugging**.
+2. Download **SMDashPatcher.apk** from [Releases](../../releases).
+3. On the Screenmate, allow installation from unknown sources and install the APK.
+4. Open the app → **Install patch**.
+5. A system **"Allow debugging?"** dialog appears on the Screenmate — tap
    **"Always allow from this device"** (one time; required to apply the patch).
-5. Done — the custom dashboard appears.
+6. Done — the custom dashboard appears.
+
+> **"Error connecting to local adbd 127.0.0.1 on port 5555"?** That means ADB isn't on — go back
+> to step 1 and enable Developer options → USB debugging, then tap *Install patch* again.
 
 ## Controls
 
