@@ -177,6 +177,14 @@ class OverlayService : Service() {
                 ACTION_HIDE_ALL -> hideBoth()
                 ACTION_SET_TRANSP -> setTranspOverride(i.getFloatExtra("v", -1f))
                 ACTION_SEND_REPORT -> handleSendReport(i.getStringExtra("comment"))
+                // panel opened → re-check for a newer release (throttled inside UpdateChecker)
+                ACTION_CHECK_UPDATE -> scope.launch(Dispatchers.IO) {
+                    runCatching { UpdateChecker.check(this@OverlayService, force = true) }
+                }
+                // panel "Update" tapped → download + silently install the latest release
+                ACTION_DO_UPDATE -> scope.launch(Dispatchers.IO) {
+                    runCatching { UpdateChecker.performUpdate(this@OverlayService) }
+                }
             }
         }
     }
@@ -259,6 +267,7 @@ class OverlayService : Service() {
             IntentFilter().apply {
                 addAction(ACTION_STATE); addAction(ACTION_SHOW_OURS); addAction(ACTION_SHOW_STOCK)
                 addAction(ACTION_HIDE_ALL); addAction(ACTION_SET_TRANSP); addAction(ACTION_SEND_REPORT)
+                addAction(ACTION_CHECK_UPDATE); addAction(ACTION_DO_UPDATE)
             },
             Context.RECEIVER_EXPORTED,
         )
@@ -278,6 +287,14 @@ class OverlayService : Service() {
                 contentResolver, "smdash_ver",
                 packageManager.getPackageInfo(packageName, 0).versionName,
             )
+        }
+        // First reconcile the update status against the INSTALLED version (network-free): if we just
+        // came back from a self-update, this flips a stuck "installing" → "current". Then quietly check
+        // GitHub for a newer release (throttled ≤ once/30 min) — the verdict lands in Settings.Global,
+        // which the injected settings panel turns into an "Update to vX.Y" button.
+        scope.launch(Dispatchers.IO) {
+            runCatching { UpdateChecker.reconcile(this@OverlayService) }
+            runCatching { UpdateChecker.check(this@OverlayService) }
         }
         publishTransp()
 
@@ -794,6 +811,8 @@ class OverlayService : Service() {
         const val ACTION_STOCK_VIS = "app.smdash.STOCKVIS"
         /** set the manual transparency override; float extra "v" in 0..0.8, or <0 to clear (follow stock) */
         const val ACTION_SET_TRANSP = "app.smdash.SETTRANSP"
+        const val ACTION_CHECK_UPDATE = "app.smdash.CHECKUPDATE" // panel open → re-check for a release
+        const val ACTION_DO_UPDATE = "app.smdash.DOUPDATE"       // panel "Update" tap → install latest
         const val STOCK_PKG = "co.teslogic.screenmate"
         const val TAG = "smdash"
 

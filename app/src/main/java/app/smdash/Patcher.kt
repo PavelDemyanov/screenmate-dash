@@ -34,8 +34,9 @@ object Patcher {
     // КМ/Ч (both const-string sites) + smEmit (DashboardState broadcast + backstop hide) +
     // SmHideObserver (instant hide) + SmdashPanel settings-block (classes4.dex, since stock v1.8
     // already ships its own classes3.dex) — now with the "Send report" (SENDREPORT) button.
-    // Rebuild → update this hash. Prior: e549778… (pre-report-button), f05e05… (RU panel text).
-    const val PATCHED_MD5 = "d2a5c01f883466f2ca4bd6be1609094c"
+    // Rebuild → update this hash. Prior: d2a5c01f… (report button, КМ/Ч), 3690611e… (KPH+update, pre-review).
+    // 359fd3ad… = v0.26: stock speed label English "KPH" + panel "Update to vX" button (inert-busy fix).
+    const val PATCHED_MD5 = "359fd3ade4a784f083731b97a5c6b671"
 
     /** guards apply()/revert() against overlapping runs (rapid taps, boot firing mid-tap, …) */
     private val running = AtomicBoolean(false)
@@ -199,6 +200,41 @@ object Patcher {
             runCatching { dadb?.close() }
         }
         return out
+    }
+
+    /**
+     * Install an APK over the local root adbd (silent — no system installer UI). Used by
+     * [UpdateChecker] to self-update: the file is our own newer release, signed with the same pinned
+     * key, so `pm install -r` reinstalls in place. NOTE: reinstalling app.smdash kills THIS process
+     * partway, so the dadb shell may not return "Success" — the install still completes server-side,
+     * and MY_PACKAGE_REPLACED brings us back. Blocking — call off the main thread.
+     */
+    fun installApk(ctx: Context, apk: File, log: (String) -> Unit): Boolean {
+        var dadb: Dadb? = null
+        try {
+            dadb = Dadb.create("127.0.0.1", 5555, keyPair(ctx))
+            if (!dadb.sh("id").contains("uid=0")) { log("no root adbd"); return false }
+            val remote = "$WORK/update.apk"
+            dadb.sh("mkdir -p $WORK")
+            log("pushing apk")
+            dadb.push(apk, remote, "644".toInt(8), System.currentTimeMillis())
+            dadb.sh("chmod 644 $remote")
+            log("pm install")
+            // -r reinstall keeping data. NO -d (allow-downgrade): a self-update only moves forward, and
+            // -d would strip PackageManager's anti-rollback guard. The shell response may be cut off when
+            // our process dies mid-install — treat a thrown/killed call as "in progress", not failure;
+            // the fresh version reconciles the status on restart.
+            val out = runCatching { dadb.sh("pm install -r $remote 2>&1") }.getOrDefault("")
+            log("pm result: ${out.trim().take(200)}")
+            // Success OR an empty/cut-off response (we were killed) both count as "went through".
+            return out.contains("Success", true) || out.isBlank()
+        } catch (e: Exception) {
+            // A dead socket here usually means the install killed us — the update is really happening.
+            Log.i(TAG, "installApk connection dropped (likely mid-install)", e)
+            return true
+        } finally {
+            runCatching { dadb?.close() }
+        }
     }
 
     /** Grant our overlay its perms + show it. Idempotent — safe to call every time. */
