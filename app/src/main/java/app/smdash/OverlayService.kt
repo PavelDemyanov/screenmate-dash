@@ -182,7 +182,14 @@ class OverlayService : Service() {
     // never resized during a gesture; it only changes when the user picks another style — or when
     // the car's clock format flips 12h↔24h (STRIP's card is wider with the AM/PM block; the flip
     // comes from the car settings, so it's just as discrete as a style switch). ---
-    private fun curW(): Int = DashStore.style.value.pxWFor(DashStore.flow.value.ampm.isNotEmpty())
+    /** STRIP grows for 12h clocks. Prefer live state; fall back to the last-seen format (and the
+     *  system 12/24h setting on first boot) so a cold start doesn't create the narrow 24h window
+     *  and clip "AM"/"PM" until a style cycle forces a resize. */
+    private fun useAmpmWidth(): Boolean =
+        DashStore.flow.value.ampm.isNotEmpty() ||
+            prefs.getBoolean(PREF_AMPM_WIDTH, !DateFormat.is24HourFormat(this))
+
+    private fun curW(): Int = DashStore.style.value.pxWFor(useAmpmWidth())
     private fun curH(): Int = DashStore.style.value.pxH
 
     /** visible (scaled) dashboard height in px — all collapse geometry uses this. */
@@ -281,7 +288,11 @@ class OverlayService : Service() {
             var last = DashStore.flow.value.ampm.isNotEmpty()
             DashStore.flow.collect { st ->
                 val ampm = st.ampm.isNotEmpty()
-                if (ampm != last) { last = ampm; applyWindowGeometry() }
+                if (ampm != last) {
+                    last = ampm
+                    prefs.edit().putBoolean(PREF_AMPM_WIDTH, ampm).apply()
+                    applyWindowGeometry()
+                }
             }
         }
 
@@ -406,18 +417,22 @@ class OverlayService : Service() {
     }
 
     /** Re-size/re-clamp the window to the current effective tile size (style and clock format).
-     *  This is the ONE sanctioned discrete resize path — never called from inside a gesture. */
-    private fun applyWindowGeometry() {
+     *  This is the ONE sanctioned discrete resize path — never called from inside a gesture.
+     *  [expand] (default true) un-collapses: style / clock flips should present the full tile.
+     *  Pass false from [showOverlay] so a sticky restart can keep a user-collapsed handle. */
+    private fun applyWindowGeometry(expand: Boolean = true) {
         animator?.cancel()
-        if (collapsed) {
-            collapsed = false
-            prefs.edit().putBoolean("collapsed", false).apply()
+        if (expand) {
+            if (collapsed) {
+                collapsed = false
+                prefs.edit().putBoolean("collapsed", false).apply()
+            }
+            dashAlpha.value = 1f
+            lp.x = clampX(lp.x)
+            lp.y = lp.y.coerceIn(0, maxY())
         }
-        dashAlpha.value = 1f
         lp.width = curW()
         lp.height = curH()
-        lp.x = clampX(lp.x)
-        lp.y = lp.y.coerceIn(0, maxY())
         view?.let { runCatching { wm.updateViewLayout(it, lp) } }
         syncTouch()
     }
@@ -432,9 +447,17 @@ class OverlayService : Service() {
      *  persisted choice + the stock-hide flag, so it doubles as the "ensure ours is up" reconcile.
      *  If the windows can't attach (e.g. the SYSTEM_ALERT_WINDOW grant hasn't propagated yet at a
      *  cold boot) it rolls the partial add back, reveals the stock so the screen is never blank, and
-     *  leaves view==null so the next reconcile (re-assert / sticky restart) retries the attach. */
+     *  leaves view==null so the next reconcile (re-assert / sticky restart) retries the attach.
+     *
+     *  Always finishes with [applyWindowGeometry] (size-only). A cold-boot [addView] can leave the
+     *  ComposeView measuring wrong / at the pre-AMPM STRIP width until the first [updateViewLayout]
+     *  — which is exactly what cycling styles already did via [onStyleChanged]. */
     private fun showOverlay() {
         if (view == null) {
+            // Size from current style + clock hint *before* attach (lp may still be the onCreate
+            // snapshot taken before mock/real ampm arrived).
+            lp.width = curW()
+            lp.height = curH()
             val v = buildDrawView()
             val tv = buildTouchView()
             val added = runCatching {
@@ -451,6 +474,8 @@ class OverlayService : Service() {
             view = v
             touchView = tv
         }
+        // Force the same layout pass a style switch gets — even when width/height are unchanged.
+        applyWindowGeometry(expand = false)
         prefs.edit().putBoolean("ours", true).apply()
         setStockHidden(true) // ours is up → hide the stock dashboard (re-asserted on every reconcile)
         publishSelection()
@@ -765,6 +790,10 @@ class OverlayService : Service() {
         const val BOTTOM_FRAC = 0.2f
         /** collapsed handle pill width in px (≈168dp at density 240) — for the strip's X bounds */
         const val STRIP_W_PX = 252
+
+        /** Last-seen 12h clock (STRIP needs a wider window). Survives reboot so cold start doesn't
+         *  attach the narrow 24h size and clip the AM/PM suffix until a style cycle resizes. */
+        const val PREF_AMPM_WIDTH = "ampm_width"
     }
 }
 
