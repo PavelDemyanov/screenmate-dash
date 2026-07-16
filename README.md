@@ -33,6 +33,9 @@ overlay that replaces the stock dashboard, fed with live vehicle data from the s
 - **Adjustable** — drag to reposition, pinch to scale (50–100 %), drag up to collapse into a strip.
 - **Reversible** — *Remove patch* restores the stock dashboard; a reboot does the same, and the
   app re-applies the patch automatically on boot.
+- **One-tap updates** — the *SM DASH* settings block checks for new releases and, when one is
+  out, shows an **"Update to vX.Y"** button that downloads and installs it in place — no PC, no
+  installer prompts. The patch re-applies itself afterwards.
 
 ## Switching dashboards
 
@@ -81,9 +84,14 @@ before installing it. Points worth verifying yourself:
 - **The overlay app** is standard Kotlin + Jetpack Compose (`app/src/main/java/app/smdash/`).
   The interesting file is [`Patcher.kt`](app/src/main/java/app/smdash/Patcher.kt) — everything
   it does to your device is there.
-- **No data leaves the device.** The `INTERNET` permission exists only so the app can talk to the
-  device's **own** local root adbd over `127.0.0.1` (loopback) to apply the patch — there are no
-  outbound network connections. Grep the source; there is no analytics, no server, no telemetry.
+- **No analytics, no telemetry, no tracking.** The `INTERNET` permission is used for three things,
+  all visible in the source: talking to the device's **own** local root adbd over `127.0.0.1`
+  (loopback) to apply the patch; checking GitHub for new releases and (only when you tap *Update*)
+  downloading the release APK from this repo; and, **only when you tap *Send report***, POSTing a
+  short PII-free diagnostic ([`ReportCollector.kt`](app/src/main/java/app/smdash/ReportCollector.kt)
+  lists exactly what — no location, no VIN, no media). Nothing is sent in the background. A
+  downloaded update is installed only after verifying it's this package signed with the same key
+  ([`UpdateChecker.kt`](app/src/main/java/app/smdash/UpdateChecker.kt)).
 - **What the stock-app patch changes** — every hook is documented in
   [`patch/README.md`](patch/README.md), and our injected code is right there
   ([`patch/SmdashPanel.java`](patch/SmdashPanel.java)). It's small, additive, and reversible.

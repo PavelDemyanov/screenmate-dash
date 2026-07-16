@@ -76,6 +76,10 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     static final String A_REPORT = "app.smdash.SENDREPORT"; // panel → app: collect + post a diag report
     static final String G_REPORT_ID = "smdash_report_id";     // app writes the resulting id here
     static final String G_REPORT_STATUS = "smdash_report_status"; // "sending" | "ok" | "err"
+    static final String A_CHECK_UPDATE = "app.smdash.CHECKUPDATE"; // panel → app: re-check for a release
+    static final String A_DO_UPDATE = "app.smdash.DOUPDATE";       // panel → app: install the latest release
+    static final String G_UPDATE_LATEST = "smdash_update_latest";  // app writes latest tag (e.g. "0.26")
+    static final String G_UPDATE_STATUS = "smdash_update_status";  // "available"|"current"|"downloading"|"installing"|"error"
 
     static final String[] KEYS = {"stock", "arc", "stack", "strip", "mini"};
     static final String[] LABELS = {"Stock", "Arc", "Stack", "Strip", "Mini"};
@@ -91,6 +95,7 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     static final String RELEASES_URL = "https://github.com/PavelDemyanov/screenmate-dash/releases";
     static final String TAG_GITHUB = "__smdash_github__"; // link tag, routed through onClick(this)
     static final String TAG_REPORT = "__smdash_report__"; // "send report" button tag
+    static final String TAG_UPDATE = "__smdash_update__"; // "update to vX" button tag
 
     final Context ctx;
     final float dens;
@@ -101,6 +106,7 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     LinearLayout thumbRow;
     TextView transpPctLabel;
     TextView reportStatus; // shows "Sending…" / "✓ Sent: #ID" / "Send failed"
+    TextView updateBtn;    // header right control: "Update on GitHub" / "Update to vX" / "Updating…"
     GlobalObserver observer;
     boolean observerReg;
     boolean syncing; // guards masterSw.setChecked() during a live sync so it doesn't re-broadcast
@@ -108,6 +114,14 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
 
     static int clampPct(int p) {
         return p < 0 ? 0 : (p > 80 ? 80 : p);
+    }
+
+    /** True only for a real dashboard-style key (stock/arc/stack/strip/mini) — guards onClick so an
+     *  internal tag like the busy-update marker never gets treated as a style selection. */
+    static boolean isStyleKey(Object tag) {
+        if (!(tag instanceof String)) return false;
+        for (String k : KEYS) if (k.equals(tag)) return true;
+        return false;
     }
 
     SmdashPanel(Context c) {
@@ -496,14 +510,51 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
         View spacer = new View(ctx);
         row.addView(spacer, new LinearLayout.LayoutParams(0, dp(1), 1f));
 
-        TextView link = label("Update on GitHub", 12, STOCK_BLUE, false, 0f);
-        link.setTypeface(Typeface.DEFAULT_BOLD);
-        link.setPadding(dp(6), dp(4), 0, dp(4));
-        link.setTag(TAG_GITHUB);       // no anonymous class (d8 chokes on it) — route via onClick(this)
-        link.setOnClickListener(this);
-        row.addView(link);
+        // Right control: normally the GitHub link; when the app has found a newer release it becomes an
+        // accent "Update to vX.Y" button that installs it in place (one tap, silent — the app has root
+        // adbd). syncUpdate() rewrites this from Settings.Global (smdash_update_*), kept live by the
+        // observer. Tapping it also re-checks (via A_CHECK_UPDATE broadcast on panel open below).
+        updateBtn = label("Update on GitHub", 12, STOCK_BLUE, false, 0f);
+        updateBtn.setTypeface(Typeface.DEFAULT_BOLD);
+        updateBtn.setPadding(dp(6), dp(4), 0, dp(4));
+        updateBtn.setTag(TAG_GITHUB);   // default action; syncUpdate() flips it to TAG_UPDATE when relevant
+        updateBtn.setOnClickListener(this);
+        row.addView(updateBtn);
+
+        // ask the app to re-check GitHub now that the panel is open (throttled app-side)
+        send(A_CHECK_UPDATE, null);
+        syncUpdate();
 
         return row;
+    }
+
+    /** Reflect the app's update verdict (Settings.Global smdash_update_*) into the header button. */
+    void syncUpdate() {
+        if (updateBtn == null) return;
+        String st = null, latest = null;
+        try {
+            st = Settings.Global.getString(ctx.getContentResolver(), G_UPDATE_STATUS);
+            latest = Settings.Global.getString(ctx.getContentResolver(), G_UPDATE_LATEST);
+        } catch (Throwable ignored) {
+        }
+        if ("downloading".equals(st) || "installing".equals(st)) {
+            updateBtn.setText("downloading".equals(st) ? "Downloading…" : "Installing…");
+            updateBtn.setTextColor(SUB);
+            updateBtn.setTag("__smdash_busy__"); // inert while working
+        } else if ("available".equals(st) && latest != null && !latest.isEmpty()) {
+            updateBtn.setText("⤓ Update to v" + latest);
+            updateBtn.setTextColor(ACCENT);
+            updateBtn.setTag(TAG_UPDATE);
+        } else if ("error".equals(st)) {
+            updateBtn.setText("Update failed — retry");
+            updateBtn.setTextColor(VER_RED);
+            updateBtn.setTag(TAG_UPDATE);
+        } else {
+            // "current" / unknown → keep the plain GitHub link (release notes, manual download)
+            updateBtn.setText("Update on GitHub");
+            updateBtn.setTextColor(STOCK_BLUE);
+            updateBtn.setTag(TAG_GITHUB);
+        }
     }
 
     /** OUR app's version. This panel runs in the stock/settings process, where Android's package-
@@ -544,9 +595,10 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     public void onClick(View v) {
         Object tag = v.getTag();
         if (TAG_GITHUB.equals(tag)) { openUrl(RELEASES_URL); return; } // link works regardless of master
+        if (TAG_UPDATE.equals(tag)) { startUpdate(); return; }         // one-tap silent self-update
         if (TAG_REPORT.equals(tag)) { sendReport(); return; }         // report works regardless of master
         if (!master) return; // thumbnails locked while the master toggle is off
-        if (!(tag instanceof String)) return;
+        if (!isStyleKey(tag)) return; // ONLY a real style thumbnail selects — never a busy/internal tag
         selected = (String) tag;
         refreshSelection();
         broadcastSelection();
@@ -581,6 +633,8 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
             cr.registerContentObserver(Settings.Global.getUriFor(G_MASTER), false, observer);
             cr.registerContentObserver(Settings.Global.getUriFor(G_REPORT_ID), false, observer);
             cr.registerContentObserver(Settings.Global.getUriFor(G_REPORT_STATUS), false, observer);
+            cr.registerContentObserver(Settings.Global.getUriFor(G_UPDATE_STATUS), false, observer);
+            cr.registerContentObserver(Settings.Global.getUriFor(G_UPDATE_LATEST), false, observer);
             observerReg = true;
             syncFromGlobal(); // pick up anything that changed while we were detached
         } catch (Throwable t) {
@@ -608,6 +662,7 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
         }
         applyMasterDim();
         syncReport();
+        syncUpdate();
     }
 
     @Override
@@ -636,6 +691,18 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     void broadcastSelection() {
         if ("stock".equals(selected)) send(A_STOCK, null);
         else send(A_OURS, selected);
+    }
+
+    /** Ask our app to download + install the latest release (silent, over its own root adbd). We only
+     *  broadcast + optimistically show "Downloading…"; the app writes smdash_update_status and our
+     *  observer updates the button. The install replaces the app in place (same signing key). */
+    void startUpdate() {
+        if (updateBtn != null) {
+            updateBtn.setText("Downloading…");
+            updateBtn.setTextColor(SUB);
+            updateBtn.setTag("__smdash_busy__");
+        }
+        send(A_DO_UPDATE, null);
     }
 
     /** Ask our app to collect + POST a diagnostic report. We can't write globals, so we only
