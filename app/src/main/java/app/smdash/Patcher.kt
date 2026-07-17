@@ -65,6 +65,26 @@ object Patcher {
         sh("dumpsys package $STOCK_PKG 2>/dev/null | grep -m1 versionName")
             .substringAfter("versionName=", "").trim().substringBefore(' ')
 
+    /**
+     * Ensure the stock's own "Show Dashboard" setting is ON. Our vehicle-data hook (`smEmit`) lives
+     * inside the stock `DashboardView`, which the stock only creates when its `dashboard-visible`
+     * pref is true. A user who turned the stock dashboard OFF *before* installing (e.g. because they
+     * didn't like its UI) would otherwise get NO real data — the overlay sits in the demo animation
+     * forever (a real user hit exactly this). Forcing it ON only enables the DATA source; our own
+     * `SmHideObserver` still hides the stock's rendered view, so the user sees OUR overlay, not the
+     * stock UI they disliked. We flip only an explicit `false` → `true` (the stock default is already
+     * visible) and edit the file IN PLACE via `cat >` so the stock's owner + SELinux context are
+     * preserved (recreating the inode would change them and the stock could no longer read it).
+     * Verified on-device: the flip preserves `u10_a177` + `...:c522,c768` and the stock honours it.
+     */
+    private fun Dadb.enableStockDashboard() {
+        val f = "/data/user/10/$STOCK_PKG/shared_prefs/SETTINGS_REPO.xml"
+        val needs = sh("[ -f '$f' ] && grep -q 'dashboard-visible\" value=\"false\"' '$f' && echo hit")
+        if (!needs.contains("hit")) return // no file, or already visible → nothing to do
+        val tmp = "$WORK/sr.tmp"
+        sh("mkdir -p $WORK; sed 's/\\(dashboard-visible\" value=\"\\)false\"/\\1true\"/' '$f' > '$tmp' && cat '$tmp' > '$f' && rm -f '$tmp'")
+    }
+
     /** The fixed adb keypair shipped in assets; copied to filesDir so dadb can read it as Files. */
     private fun keyPair(ctx: Context): AdbKeyPair {
         val priv = File(ctx.filesDir, "adbkey")
@@ -89,6 +109,12 @@ object Patcher {
             val id = dadb.sh("id").trim()
             if (!id.contains("uid=0")) { log(s.noRootPrefix + id); return false }
             log(s.rootOk)
+
+            // Make sure the stock's own dashboard is enabled so its DashboardView (our data source)
+            // runs — otherwise the overlay is stuck in the demo animation. Runs on EVERY apply (before
+            // the stock is force-stopped + restarted below), so it fixes both a fresh install with the
+            // toggle off AND an already-stuck box on its next boot (boot always takes the full path).
+            dadb.enableStockDashboard()
 
             // Resolve the ACTIVE stock apk (its /data/app dir changes on every stock update).
             val target = dadb.stockApkPath()
