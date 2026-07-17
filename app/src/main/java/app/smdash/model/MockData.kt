@@ -3,6 +3,7 @@ package app.smdash.model
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlin.math.roundToInt
 import java.util.Calendar
 
 /** Reproduces the design's live demo loop so we can see the dashboard breathe
@@ -33,6 +34,11 @@ fun mockDashboardFlow(is24h: Boolean = true): Flow<DashboardState> = flow {
 
         // battery 100 -> 5 over 26s (so red/yellow thresholds show)
         val battery = (100 - (el % 26) / 26 * 95).toInt()
+
+        // temperatures sweep the full range so STACK_TEMP's value-coloured readouts show blue→
+        // white→orange in the demo (outside −15..+35 over 30s; the second temp a slower, warmer swing)
+        val outTemp = (-15 + (kotlin.math.sin(el / 4.8) + 1) / 2 * 50).roundToInt()
+        val cabinTemp = (2 + (kotlin.math.sin(el / 6.7 + 1.4) + 1) / 2 * 30).roundToInt()
 
         // group-2 telltales toggle over 28s
         val wc = el % 28
@@ -81,6 +87,8 @@ fun mockDashboardFlow(is24h: Boolean = true): Flow<DashboardState> = flow {
                 heat = true,
                 beam = beam,
                 hold = false,
+                outTemp = "$outTemp°",
+                cabinTemp = "$cabinTemp°",
             )
         )
         delay(70)

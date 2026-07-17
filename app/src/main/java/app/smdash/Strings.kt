@@ -21,6 +21,7 @@ data class Strings(
     val styleTitle: String,
     val styleArc: String,
     val styleStack: String,
+    val styleStackTemp: String,
     val styleStrip: String,
     val styleMini: String,
     // patcher progress (some are prefixes the patcher appends a value to)
@@ -77,6 +78,7 @@ data class Strings(
             styleTitle = "Dashboard style",
             styleArc = "Arc",
             styleStack = "Stack",
+            styleStackTemp = "Temp",
             styleStrip = "Strip",
             styleMini = "Mini",
             connecting = "Connecting to local adbd (127.0.0.1:5555)…",
@@ -120,6 +122,7 @@ data class Strings(
             styleTitle = "Стиль дашборда",
             styleArc = "Дуга",
             styleStack = "Стек",
+            styleStackTemp = "Темп.",
             styleStrip = "Полоса",
             styleMini = "Мини",
             connecting = "Подключаюсь к локальному adbd (127.0.0.1:5555)…",

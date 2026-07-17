@@ -11,6 +11,9 @@ import kotlin.math.roundToInt
 enum class DashStyle(val key: String, val wDp: Float, val hDp: Float) {
     ARC("arc", 380f, 379.33f),   // 570×569 px — the historical tile size, unchanged
     STACK("stack", 300f, 230f),   // exact prototype card size (measured via getBoundingClientRect)
+    // STACK + outside/battery temperatures flanking the speed ("Speedometer v5" handoff). Same card
+    // as STACK (300×230) — the two temps sit inside it at the left/right edges.
+    STACK_TEMP("stacktemp", 300f, 230f),
     STRIP("strip", 552.7f, 114f), // exact prototype card size
     MINI("mini", 232f, 249f);     // exact prototype card size
 

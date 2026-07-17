@@ -36,7 +36,8 @@ object Patcher {
     // already ships its own classes3.dex) — now with the "Send report" (SENDREPORT) button.
     // Rebuild → update this hash. Prior: d2a5c01f… (report button, КМ/Ч), 3690611e… (KPH+update, pre-review).
     // 359fd3ad… = v0.26: stock speed label English "KPH" + panel "Update to vX" button (inert-busy fix).
-    const val PATCHED_MD5 = "359fd3ade4a784f083731b97a5c6b671"
+    // 0a608da0… = v0.30: panel gains the "Temp" (stacktemp) style thumbnail + key.
+    const val PATCHED_MD5 = "0a608da012c62e23919c1645a7d2b7b5"
 
     // The patch is built for stock Screenmate v1.8 (its smali hooks are ported onto v1.8's code).
     // On an older stock (e.g. 1.7) it would mount but silently fail — the v1.8 data hook never fires,

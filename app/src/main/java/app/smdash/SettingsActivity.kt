@@ -42,6 +42,7 @@ import app.smdash.model.DashboardState
 import app.smdash.ui.DashboardTile
 import app.smdash.ui.MiniTile
 import app.smdash.ui.StackTile
+import app.smdash.ui.StackTempTile
 import app.smdash.ui.StripTile
 import app.smdash.ui.TuneSlider
 import kotlin.math.min
@@ -109,6 +110,7 @@ class SettingsActivity : ComponentActivity() {
                     ) {
                         StyleCard(s.styleArc, DashStyle.ARC, style == DashStyle.ARC, live, Modifier.weight(1f)) { pickStyle(DashStyle.ARC) }
                         StyleCard(s.styleStack, DashStyle.STACK, style == DashStyle.STACK, live, Modifier.weight(1f)) { pickStyle(DashStyle.STACK) }
+                        StyleCard(s.styleStackTemp, DashStyle.STACK_TEMP, style == DashStyle.STACK_TEMP, live, Modifier.weight(1f)) { pickStyle(DashStyle.STACK_TEMP) }
                         StyleCard(s.styleStrip, DashStyle.STRIP, style == DashStyle.STRIP, live, Modifier.weight(1f)) { pickStyle(DashStyle.STRIP) }
                         StyleCard(s.styleMini, DashStyle.MINI, style == DashStyle.MINI, live, Modifier.weight(1f)) { pickStyle(DashStyle.MINI) }
                     }
@@ -183,6 +185,7 @@ private fun TilePreview(style: DashStyle, live: DashboardState) {
             when (style) {
                 DashStyle.ARC -> DashboardTile(state)
                 DashStyle.STACK -> StackTile(state)
+                DashStyle.STACK_TEMP -> StackTempTile(state)
                 DashStyle.STRIP -> StripTile(state)
                 DashStyle.MINI -> MiniTile(state)
             }

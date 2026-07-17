@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import kotlin.math.roundToInt
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,7 +81,7 @@ private val Gold = Color(0xFFF5C420)
 private data class GlowSpec(val blindEnd: Float, val sigEnd: Float)
 
 private fun glowSpec(style: DashStyle) = when (style) {
-    DashStyle.STACK -> GlowSpec(0.38f, 0.52f)
+    DashStyle.STACK, DashStyle.STACK_TEMP -> GlowSpec(0.38f, 0.52f)
     DashStyle.STRIP -> GlowSpec(0.34f, 0.46f)
     else -> GlowSpec(0.44f, 0.56f) // MINI (ARC never uses these)
 }
@@ -215,6 +216,38 @@ private fun BeamIcon(mode: BeamMode, iconDp: Float) {
         BeamMode.ON -> VIcon(32f, 32f, BEAM_ON_PATHS, Modifier.size(iconDp.dp))
         BeamMode.AVAILABLE -> VIcon(32f, 32f, BEAM_OFF_PATHS, Modifier.size(iconDp.dp))
         BeamMode.NONE -> Unit
+    }
+}
+
+/** Temperature readout for STACK_TEMP: number (20sp) + a small "°" (13sp), coloured by the value.
+ *  Colour maps exactly like the v5 prototype's `_tempColor`: white at 0°, → cold blue toward −30°,
+ *  → hot orange toward +30° (clamped). The value is parsed out of the stock temp string ("18°"). */
+private val ColdRgb = Triple(125, 184, 255)
+private val HotRgb = Triple(255, 138, 0)
+
+private fun lerpI(a: Int, b: Int, k: Float): Int = (a + (b - a) * k).roundToInt()
+
+private fun tempColor(t: Int): Color {
+    val c = t.coerceIn(-30, 30)
+    return if (c < 0) {
+        val k = -c / 30f
+        Color(lerpI(255, ColdRgb.first, k), lerpI(255, ColdRgb.second, k), lerpI(255, ColdRgb.third, k))
+    } else {
+        val k = c / 30f
+        Color(lerpI(255, HotRgb.first, k), lerpI(255, HotRgb.second, k), lerpI(255, HotRgb.third, k))
+    }
+}
+
+/** first signed integer in the stock temp string ("18° C" / "-5°" / "") → null when absent. */
+private fun tempVal(s: String): Int? = Regex("-?\\d+").find(s)?.value?.toIntOrNull()
+
+@Composable
+private fun TempReadout(raw: String) {
+    val v = tempVal(raw)
+    val col = v?.let { tempColor(it) } ?: DigitCol
+    Row(verticalAlignment = Alignment.Bottom) {
+        BasicText(v?.toString() ?: raw.trimEnd('°', ' '), style = statStyle(col))
+        BasicText("°", Modifier.padding(bottom = 1.dp), style = statStyle(col).copy(fontSize = 13.sp))
     }
 }
 
@@ -406,6 +439,36 @@ fun StackTile(state: DashboardState) {
         Abs(19f, 169f) { SpeedBar(state.speed, state.mph, Modifier.width(262.dp)) }
         Abs(19f, 187f + t.gear) { PrndRow(state.gear) }
         // space-between row: the wider 12h time block shifts the middle (battery) item left (measured)
+        Abs(if (state.ampm.isEmpty()) 137f else 125.9f, 187f + t.batt) { BattText(state.battery) }
+        StatClock(state, x24 = 211f, digitsRightX = 258.8f, ampmX = 262.8f, y = 187f + t.time)
+    }, topOverlay = {
+        if (state.hold) CompactTakeover(row = false, label = "HOLD STEERING WHEEL", wheelDp = 46f)
+    })
+}
+
+/* ==================== 01b · STACK_TEMP (card 300×230, STACK + temps) ====================
+ * Identical to STACK, plus two temperature readouts flanking the speed: LEFT = outside air
+ * (state.outTemp), RIGHT = the car's second temp (state.cabinTemp, sourced from the stock's
+ * batteryTemp — Screenmate exposes no true cabin sensor). Both are value-coloured (see TempReadout).
+ * All coordinates measured from the "Speedometer v5" .dc.html via getBoundingClientRect. Reuses
+ * STACK's per-element tuning (same layout). */
+@Composable
+fun StackTempTile(state: DashboardState) {
+    val t by CompactTuning.stack.collectAsState()
+    TileCard(DashStyle.STACK_TEMP, state, radiusDp = 22f, content = {
+        Abs(46.5f, 24f) { IconSlot(26f) { ApIcon(state.autopilot, 22f) } }
+        Abs(84.5f, 24f) { IconSlot(26f) { if (state.belt) VIcon(32f, 32f, BELT_PATHS, Modifier.size(20.dp)) } }
+        Abs(122.5f, 24f) { IconSlot(26f) { if (state.heat) VIcon(24f, 24f, HEAT_PATHS, Modifier.size(21.dp)) } }
+        Abs(160.5f, 24f) { IconSlot(26f) { BeamIcon(state.beam, 23f) } }
+        Abs(200.5f, 28f) { Box(Modifier.size(width = 1.dp, height = 18.dp).background(Color(0xFF2C2D31))) }
+        Abs(213.5f, 17f + t.limit) { if (state.limit != null) SpeedLimitSign(state.limit, 40f) }
+        // temperatures: outside left-anchored at x=19; the second temp right-anchored to x=281
+        Abs(19f, 91f) { TempReadout(state.outTemp) }
+        Abs(200f, 91f) { Box(Modifier.width(81.dp), contentAlignment = Alignment.TopEnd) { TempReadout(state.cabinTemp) } }
+        Abs(70.5f, 71f + t.digit) { Box(Modifier.width(159.dp), contentAlignment = Alignment.Center) { SpeedDigits(state.speed) } }
+        Abs(19f, 143f + t.kmh) { Box(Modifier.width(262.dp), contentAlignment = Alignment.Center) { KmhLabel(state.mph) } }
+        Abs(19f, 169f) { SpeedBar(state.speed, state.mph, Modifier.width(262.dp)) }
+        Abs(19f, 187f + t.gear) { PrndRow(state.gear) }
         Abs(if (state.ampm.isEmpty()) 137f else 125.9f, 187f + t.batt) { BattText(state.battery) }
         StatClock(state, x24 = 211f, digitsRightX = 258.8f, ampmX = 262.8f, y = 187f + t.time)
     }, topOverlay = {

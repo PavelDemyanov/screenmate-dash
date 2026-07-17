@@ -59,6 +59,7 @@ import app.smdash.model.parseStockState
 import app.smdash.ui.DashboardTile
 import app.smdash.ui.MiniTile
 import app.smdash.ui.StackTile
+import app.smdash.ui.StackTempTile
 import app.smdash.ui.StripTile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -376,6 +377,7 @@ class OverlayService : Service() {
                         when (style) {
                             DashStyle.ARC -> DashboardTile(state)
                             DashStyle.STACK -> StackTile(state)
+                            DashStyle.STACK_TEMP -> StackTempTile(state)
                             DashStyle.STRIP -> StripTile(state)
                             DashStyle.MINI -> MiniTile(state)
                         }
