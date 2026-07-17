@@ -49,6 +49,18 @@ object Patcher {
     /** guards apply()/revert() against overlapping runs (rapid taps, boot firing mid-tap, …) */
     private val running = AtomicBoolean(false)
 
+    /** Compare a stock versionName against [REQUIRED_STOCK_PREFIX], component-wise numeric:
+     *  <0 = older (e.g. 1.7 vs 1.8), >0 = newer (e.g. 1.9 vs 1.8), 0 = same line. */
+    private fun stockVsRequired(ver: String): Int {
+        fun parts(v: String) = v.trim().split('.', '-').map { seg -> seg.takeWhile(Char::isDigit).toIntOrNull() ?: 0 }
+        val a = parts(ver); val b = parts(REQUIRED_STOCK_PREFIX)
+        for (i in 0 until maxOf(a.size, b.size)) {
+            val d = a.getOrElse(i) { 0 } - b.getOrElse(i) { 0 }
+            if (d != 0) return d
+        }
+        return 0
+    }
+
     private fun Dadb.md5(path: String): String =
         sh("md5sum '$path' 2>/dev/null").trim().substringBefore(' ')
 
@@ -141,7 +153,11 @@ object Patcher {
             // proceed rather than falsely block a legit 1.8 install — an empty read isn't evidence.
             val ver = dadb.stockVersion()
             if (ver.isNotEmpty() && !ver.startsWith(REQUIRED_STOCK_PREFIX)) {
-                log(s.wrongStockPrefix + ver + s.wrongStockSuffix)
+                // Direction matters: a user BELOW 1.8 (e.g. 1.7) should update Screenmate to 1.8; a user
+                // ABOVE it (e.g. 1.9 — Screenmate shipped a newer stock) can't "downgrade to 1.8", so
+                // tell them SM Dash itself needs an update to support their newer stock.
+                if (stockVsRequired(ver) < 0) log(s.wrongStockOldPrefix + ver + s.wrongStockOldSuffix)
+                else log(s.wrongStockNewPrefix + ver + s.wrongStockNewSuffix)
                 return false
             }
 
