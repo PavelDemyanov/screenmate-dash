@@ -38,6 +38,13 @@ object Patcher {
     // 359fd3ad… = v0.26: stock speed label English "KPH" + panel "Update to vX" button (inert-busy fix).
     const val PATCHED_MD5 = "359fd3ade4a784f083731b97a5c6b671"
 
+    // The patch is built for stock Screenmate v1.8 (its smali hooks are ported onto v1.8's code).
+    // On an older stock (e.g. 1.7) it would mount but silently fail — the v1.8 data hook never fires,
+    // so the overlay sits in the demo animation forever (seen in a real 1.7 user's diagnostic report).
+    // We refuse to mount unless the stock version matches, and tell the user to update Screenmate.
+    // Bump this string when the patch is re-based onto a newer stock.
+    private const val REQUIRED_STOCK_PREFIX = "1.8"
+
     /** guards apply()/revert() against overlapping runs (rapid taps, boot firing mid-tap, …) */
     private val running = AtomicBoolean(false)
 
@@ -51,6 +58,12 @@ object Patcher {
     private fun Dadb.stockApkPath(): String =
         sh("pm path $STOCK_PKG 2>/dev/null").lineSequence()
             .firstOrNull { it.startsWith("package:") }?.removePrefix("package:")?.trim() ?: ""
+
+    /** The stock Screenmate versionName, e.g. "1.8". PM reports the ORIGINAL scanned manifest even
+     *  when our patch is bind-mounted over it, so this is the device's real stock version either way. */
+    private fun Dadb.stockVersion(): String =
+        sh("dumpsys package $STOCK_PKG 2>/dev/null | grep -m1 versionName")
+            .substringAfter("versionName=", "").trim().substringBefore(' ')
 
     /** The fixed adb keypair shipped in assets; copied to filesDir so dadb can read it as Files. */
     private fun keyPair(ctx: Context): AdbKeyPair {
@@ -91,6 +104,18 @@ object Patcher {
                 ensureGrantsAndStart(dadb)
                 log(s.alreadyActive)
                 return true
+            }
+
+            // GUARD: only mount on the stock version this patch is built for. On an older stock the
+            // apk mounts but the data hook never fires → the overlay is stuck in the demo animation
+            // (a real 1.7 user hit exactly this). Refuse and tell them to update Screenmate. This runs
+            // only on a fresh (not-yet-mounted) apply, so it never disturbs a working install.
+            // Block only a CONFIRMED wrong version; if the read comes back empty (a dumpsys hiccup),
+            // proceed rather than falsely block a legit 1.8 install — an empty read isn't evidence.
+            val ver = dadb.stockVersion()
+            if (ver.isNotEmpty() && !ver.startsWith(REQUIRED_STOCK_PREFIX)) {
+                log(s.wrongStockPrefix + ver + s.wrongStockSuffix)
+                return false
             }
 
             // 1. stage the patched APK in /data (once; re-push if missing/wrong). It must carry the

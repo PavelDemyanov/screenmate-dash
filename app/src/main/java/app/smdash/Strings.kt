@@ -33,6 +33,10 @@ data class Strings(
     val mountFailed: String,
     val busy: String,
     val notFound: String,
+    // shown when the stock Screenmate version isn't the one the patch is built for. The patcher
+    // appends the found version between these two: wrongStockPrefix + "1.7" + wrongStockSuffix.
+    val wrongStockPrefix: String,
+    val wrongStockSuffix: String,
     val corrupt: String,
     val alreadyActive: String,
     val done: String,
@@ -84,6 +88,8 @@ data class Strings(
             mountFailed = "✗ Mount didn't apply",
             busy = "⏳ Busy — a patch operation is already running.",
             notFound = "✗ Screenmate stock dashboard not found — nothing to patch on this device.",
+            wrongStockPrefix = "✗ This patch needs Screenmate 1.8, but this device has ",
+            wrongStockSuffix = ". Update the Screenmate app to 1.8 (Settings → Software), then Install patch again.",
             corrupt = "✗ Patch file integrity check failed — aborted, nothing changed.",
             alreadyActive = "✓ Patch already active — re-checked everything, all good.",
             done = "✓ Done — patch active",
@@ -125,6 +131,8 @@ data class Strings(
             mountFailed = "✗ Маунт не применился",
             busy = "⏳ Занято — операция уже выполняется.",
             notFound = "✗ Стоковый дашборд Screenmate не найден — на этом устройстве патчить нечего.",
+            wrongStockPrefix = "✗ Патч рассчитан на Screenmate 1.8, а на устройстве ",
+            wrongStockSuffix = ". Обновите приложение Screenmate до 1.8 (Настройки → Software) и снова нажмите Install patch.",
             corrupt = "✗ Проверка целостности патча не прошла — отменено, ничего не изменено.",
             alreadyActive = "✓ Патч уже активен — всё перепроверено, порядок.",
             done = "✓ Готово — патч активен",
