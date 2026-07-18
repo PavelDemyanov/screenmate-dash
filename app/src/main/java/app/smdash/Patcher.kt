@@ -38,13 +38,13 @@ object Patcher {
     // 359fd3ad… = v0.26: stock speed label English "KPH" + panel "Update to vX" button (inert-busy fix).
     // 0a608da0… = v0.30 (1.8-based, panel + Temp style).
     // 26a21ad0… = v0.32: re-based onto stock **1.9** (hooks re-ported; stock moved back to /system_ext).
-    const val PATCHED_MD5 = "26a21ad0749eab51ca0529e3804bf238"
+    const val PATCHED_MD5 = "7d9f4752264d567f7f9aaf2b37f0f03f"
 
-    // The patch is built for stock Screenmate v1.8 (its smali hooks are ported onto v1.8's code).
-    // On an older stock (e.g. 1.7) it would mount but silently fail — the v1.8 data hook never fires,
-    // so the overlay sits in the demo animation forever (seen in a real 1.7 user's diagnostic report).
-    // We refuse to mount unless the stock version matches, and tell the user to update Screenmate.
-    // Bump this string when the patch is re-based onto a newer stock.
+    // The patch is built for stock Screenmate v1.9 (its smali hooks are ported onto v1.9's code).
+    // On a MISMATCHED stock it would mount but silently fail — the data hook never fires, so the
+    // overlay sits in the demo animation forever (seen in a real user's diagnostic report). We refuse
+    // to mount unless the stock version matches, and tell the user (directionally) to update
+    // Screenmate (if older) or wait for a new SM Dash (if newer). Bump this on every re-base.
     private const val REQUIRED_STOCK_PREFIX = "1.9"
 
     /** guards apply()/revert() against overlapping runs (rapid taps, boot firing mid-tap, …) */
