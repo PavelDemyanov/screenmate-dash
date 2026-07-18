@@ -36,15 +36,16 @@ object Patcher {
     // already ships its own classes3.dex) — now with the "Send report" (SENDREPORT) button.
     // Rebuild → update this hash. Prior: d2a5c01f… (report button, КМ/Ч), 3690611e… (KPH+update, pre-review).
     // 359fd3ad… = v0.26: stock speed label English "KPH" + panel "Update to vX" button (inert-busy fix).
-    // 0a608da0… = v0.30: panel gains the "Temp" (stacktemp) style thumbnail + key.
-    const val PATCHED_MD5 = "0a608da012c62e23919c1645a7d2b7b5"
+    // 0a608da0… = v0.30 (1.8-based, panel + Temp style).
+    // 26a21ad0… = v0.32: re-based onto stock **1.9** (hooks re-ported; stock moved back to /system_ext).
+    const val PATCHED_MD5 = "26a21ad0749eab51ca0529e3804bf238"
 
     // The patch is built for stock Screenmate v1.8 (its smali hooks are ported onto v1.8's code).
     // On an older stock (e.g. 1.7) it would mount but silently fail — the v1.8 data hook never fires,
     // so the overlay sits in the demo animation forever (seen in a real 1.7 user's diagnostic report).
     // We refuse to mount unless the stock version matches, and tell the user to update Screenmate.
     // Bump this string when the patch is re-based onto a newer stock.
-    private const val REQUIRED_STOCK_PREFIX = "1.8"
+    private const val REQUIRED_STOCK_PREFIX = "1.9"
 
     /** guards apply()/revert() against overlapping runs (rapid taps, boot firing mid-tap, …) */
     private val running = AtomicBoolean(false)
@@ -162,8 +163,10 @@ object Patcher {
             }
 
             // 1. stage the patched APK in /data (once; re-push if missing/wrong). It must carry the
-            //    apk_data_file SELinux context (that's what the platform_app process can mmap from
-            //    /data/app) — NOT system_file, which was right only for the old /system_ext target.
+            //    SAME SELinux context as the TARGET so the platform_app process can mmap it once bound.
+            //    That context depends on where the stock lives, and it MOVES between stock versions:
+            //    v1.8 was at /data/app (apk_data_file); v1.9 moved back to /system_ext (system_file).
+            //    So we read the live target's context and copy it, instead of hardcoding either one.
             if (dadb.md5(PATCHED) != PATCHED_MD5) {
                 log(s.unpacking)
                 val tmp = File(ctx.cacheDir, "patched_stock.apk")
@@ -171,7 +174,10 @@ object Patcher {
                 log(s.uploading)
                 dadb.push(tmp, PATCHED, "644".toInt(8), System.currentTimeMillis())
                 tmp.delete()
-                dadb.sh("chmod 644 $PATCHED; chcon u:object_r:apk_data_file:s0 $PATCHED")
+                val tctx = dadb.sh("ls -Zd '$target' 2>/dev/null").trim()
+                    .split(Regex("\\s+")).firstOrNull { it.count { c -> c == ':' } >= 3 }
+                    ?: "u:object_r:system_file:s0"
+                dadb.sh("chmod 644 $PATCHED; chcon '$tctx' $PATCHED")
             }
             // integrity gate: never mount a corrupt file — that would break the stock dashboard
             if (dadb.md5(PATCHED) != PATCHED_MD5) { log(s.corrupt); return false }
