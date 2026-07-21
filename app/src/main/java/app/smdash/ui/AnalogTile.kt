@@ -27,8 +27,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -37,6 +39,7 @@ import app.smdash.model.ApMode
 import app.smdash.model.BeamMode
 import app.smdash.model.DashStore
 import app.smdash.model.DashboardState
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -54,7 +57,9 @@ import kotlin.math.sin
 private const val DIAL = 370f
 private const val CTR = 185f
 private const val TICK_OUTER = 164f // measured: ticks end at radius 164 — a 10px gap to the bezel (174)
-private const val NUM_R = 126f      // number CENTRES (measured), not the tick edge
+private const val NUM_R = 126f      // centre-align: number CENTRES on this radius (measured prototype)
+private const val EDGE_R = 140f     // edge-align: each number's rim-facing edge sits on this radius
+private const val NUM_CAP = 15f     // digit cap-height (dp) — the vertical extent used in edge projection
 
 private val TickWhite = Color(0xFFD8D8DA)
 private val TickRed = Color(0xFFFF5B5B)
@@ -133,13 +138,33 @@ fun AnalogTile(state: DashboardState) {
             }
         }
 
-        // ---------- numbers (centres on radius 126) + KM/H ----------
+        // ---------- numbers + KM/H ----------
+        // Two layouts (toggle in the tuner). A number's width grows with its digit count ("0" vs "220"),
+        // so centring every number on ONE radius leaves the last digit of a 3-digit number crowding the
+        // ticks while a 1-digit number sits far away.
+        //  • edge-align (how real gauges do it): shift each number inward along its spoke by its own
+        //    radial half-extent — the support function w/2·|sinθ| + cap/2·|cosθ| — so the digit NEAREST
+        //    the ticks always lands on one circle (EDGE_R). Even gap regardless of digit count.
+        //  • centre-align: the classic "ring of centres on NUM_R" look.
+        val edgeAlign by DashStore.analogEdgeAlign.collectAsState()
+        val measurer = rememberTextMeasurer()
+        val density = LocalDensity.current
+        val numStyle = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
         var nv = 0
         while (nv <= maxV.toInt()) {
-            val (x, y) = dialPt(NUM_R + numR, dialA(nv.toFloat(), maxV))
+            val a = dialA(nv.toFloat(), maxV)
+            val cR = if (edgeAlign) {
+                val wDp = with(density) { measurer.measure("$nv", numStyle).size.width.toDp().value }
+                val rad = Math.toRadians(a.toDouble())
+                val support = (wDp / 2f) * abs(sin(rad)).toFloat() + (NUM_CAP / 2f) * abs(cos(rad)).toFloat()
+                EDGE_R + numR - support
+            } else {
+                NUM_R + numR
+            }
+            val (x, y) = dialPt(cR, a)
             val col = if (nv >= redlineV) TickRed else NumWhite
             CenterAt(x, y, 46f, 32f) {
-                BasicText("$nv", style = TextStyle(color = col, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center))
+                BasicText("$nv", style = numStyle.copy(color = col))
             }
             nv += 20
         }

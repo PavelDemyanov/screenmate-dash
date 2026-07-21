@@ -20,6 +20,11 @@ object DashStore {
     val analogNumR = MutableStateFlow(ANALOG_NUM_R_DEFAULT)
 
     const val ANALOG_NUM_R_DEFAULT = -6f
+
+    /** ANALOG dial: number alignment. true = align each number's OUTER edge (the digit nearest the
+     *  ticks) onto one radius, so the gap to the ticks is even whether the number is 1 or 3 digits
+     *  (how real gauges do it); false = the classic centre-on-one-radius layout. Toggle in the tuner. */
+    val analogEdgeAlign = MutableStateFlow(true)
 }
 
 private fun field(s: String, key: String): String? =

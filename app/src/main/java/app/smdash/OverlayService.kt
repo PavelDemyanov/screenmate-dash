@@ -282,6 +282,7 @@ class OverlayService : Service() {
         DashStore.transpOverride.value = prefs.getFloat("transp", -1f).takeIf { it >= 0f }
         DashStore.style.value = DashStyle.fromKey(prefs.getString("style", null)) // before lp — it sizes the window
         DashStore.analogNumR.value = prefs.getFloat("analog_num_r", DashStore.ANALOG_NUM_R_DEFAULT) // ANALOG number radial nudge
+        DashStore.analogEdgeAlign.value = prefs.getBoolean("analog_edge_align", true) // ANALOG number alignment (edge vs centre)
         // Publish our version for the injected stock settings panel (it runs in the stock/settings
         // process and Android's package-visibility filter blocks getPackageInfo("app.smdash") there,
         // but Settings.Global is readable without a query). Refreshed on every service (re)start.

@@ -85,10 +85,22 @@ class TuningActivity : ComponentActivity() {
                     }
                 }
                 if (style == DashStyle.ANALOG) {
-                    // ANALOG has one tunable: slide the speed numbers in/out radially from the centre.
-                    // Persist into the `overlay` prefs (`analog_num_r`) that OverlayService loads.
+                    // ANALOG tunables (persisted into the `overlay` prefs OverlayService loads):
+                    //  • number alignment — outer-edge (even gap to the ticks) vs classic centre;
+                    //  • radial nudge — slide the numbers in/out from the centre.
                     val overlayPrefs = ctx.getSharedPreferences("overlay", MODE_PRIVATE)
                     val numR by DashStore.analogNumR.collectAsState()
+                    val edge by DashStore.analogEdgeAlign.collectAsState()
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Chip("Цифры по краю", active = edge) {
+                            DashStore.analogEdgeAlign.value = true
+                            overlayPrefs.edit().putBoolean("analog_edge_align", true).apply()
+                        }
+                        Chip("По центру", active = !edge) {
+                            DashStore.analogEdgeAlign.value = false
+                            overlayPrefs.edit().putBoolean("analog_edge_align", false).apply()
+                        }
+                    }
                     TuneRow("Цифры (радиально)", numR) {
                         val v = numR + it
                         DashStore.analogNumR.value = v
