@@ -38,7 +38,7 @@ object Patcher {
     // 359fd3ad… = v0.26: stock speed label English "KPH" + panel "Update to vX" button (inert-busy fix).
     // 0a608da0… = v0.30 (1.8-based, panel + Temp style).
     // 26a21ad0… = v0.32: re-based onto stock **1.9** (hooks re-ported; stock moved back to /system_ext).
-    const val PATCHED_MD5 = "1294e604e884a3a8a42f3b4bdd437a90"
+    const val PATCHED_MD5 = "974292ca4e09c2650f2582bca844dc76"
 
     // The patch is built for stock Screenmate v1.9 (its smali hooks are ported onto v1.9's code).
     // On a MISMATCHED stock it would mount but silently fail — the data hook never fires, so the

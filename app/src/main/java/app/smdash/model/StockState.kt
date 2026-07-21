@@ -13,6 +13,10 @@ object DashStore {
 
     /** Selected dashboard style; set by the settings panel, persisted by OverlayService. */
     val style = MutableStateFlow(DashStyle.ARC)
+
+    /** ANALOG dial: radial nudge (dp) for the speed numbers — user-adjustable in the app settings so
+     *  the numbers can slide in/out from the centre. 0 = the measured prototype radius (126). */
+    val analogNumR = MutableStateFlow(0f)
 }
 
 private fun field(s: String, key: String): String? =

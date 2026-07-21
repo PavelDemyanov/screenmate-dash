@@ -281,6 +281,7 @@ class OverlayService : Service() {
         // sets OUR own in-app slider persists a 0..0.8 value here, which then overrides the stock's.
         DashStore.transpOverride.value = prefs.getFloat("transp", -1f).takeIf { it >= 0f }
         DashStore.style.value = DashStyle.fromKey(prefs.getString("style", null)) // before lp — it sizes the window
+        DashStore.analogNumR.value = prefs.getFloat("analog_num_r", 0f) // ANALOG number radial nudge
         // Publish our version for the injected stock settings panel (it runs in the stock/settings
         // process and Android's package-visibility filter blocks getPackageInfo("app.smdash") there,
         // but Settings.Global is readable without a query). Refreshed on every service (re)start.

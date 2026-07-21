@@ -8,11 +8,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -32,6 +35,7 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import app.smdash.model.ApMode
 import app.smdash.model.BeamMode
+import app.smdash.model.DashStore
 import app.smdash.model.DashboardState
 import kotlin.math.cos
 import kotlin.math.sin
@@ -49,7 +53,7 @@ import kotlin.math.sin
 
 private const val DIAL = 370f
 private const val CTR = 185f
-private const val TICK_OUTER = 175f
+private const val TICK_OUTER = 164f // measured: ticks end at radius 164 — a 10px gap to the bezel (174)
 private const val NUM_R = 126f      // number CENTRES (measured), not the tick edge
 
 private val TickWhite = Color(0xFFD8D8DA)
@@ -94,6 +98,7 @@ fun AnalogTile(state: DashboardState) {
     val maxV = if (mph) 160f else 220f
     val redlineV = if (mph) 130f else 180f
     val face = 1f - state.bgTransparency.coerceIn(0f, 0.8f)
+    val numR by DashStore.analogNumR.collectAsState()   // user radial nudge for the numbers
 
     Box(Modifier.size(DIAL.dp).clip(CircleShape)) {
         // ---------- base: bezel + face + ticks (behind everything) ----------
@@ -131,7 +136,7 @@ fun AnalogTile(state: DashboardState) {
         // ---------- numbers (centres on radius 126) + KM/H ----------
         var nv = 0
         while (nv <= maxV.toInt()) {
-            val (x, y) = dialPt(NUM_R, dialA(nv.toFloat(), maxV))
+            val (x, y) = dialPt(NUM_R + numR, dialA(nv.toFloat(), maxV))
             val col = if (nv >= redlineV) TickRed else NumWhite
             CenterAt(x, y, 46f, 32f) {
                 BasicText("$nv", style = TextStyle(color = col, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center))
@@ -209,8 +214,14 @@ fun AnalogTile(state: DashboardState) {
         }
 
         // ---------- z5: blind-spot side glow (only a blind spot WITHOUT a turn on that side) ----------
-        if (state.blindLeft && !state.turnLeft) CompactBlindGlow(fromRight = false, end = 0.4f)
-        if (state.blindRight && !state.turnRight) CompactBlindGlow(fromRight = true, end = 0.4f)
+        // The glow lives INSIDE the dark face (clipped to the 348 inner circle via the 11dp padding),
+        // so the metallic bezel ring stays on top of it — the amber wash never tints the frame.
+        if ((state.blindLeft && !state.turnLeft) || (state.blindRight && !state.turnRight)) {
+            Box(Modifier.matchParentSize().padding(11.dp).clip(CircleShape)) {
+                if (state.blindLeft && !state.turnLeft) CompactBlindGlow(fromRight = false, end = 0.4f)
+                if (state.blindRight && !state.turnRight) CompactBlindGlow(fromRight = true, end = 0.4f)
+            }
+        }
 
         if (state.hold) AnalogTakeover()
     }
