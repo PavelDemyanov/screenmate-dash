@@ -132,22 +132,6 @@ class SettingsActivity : ComponentActivity() {
                     TuneSlider("${s.transpLabel}   ${shownPct.toInt()}%", shownPct, 0f, 80f) {
                         pct = it; auto = false; push()
                     }
-
-                    // ---- ANALOG: slide the speed numbers in/out radially ----
-                    if (style == DashStyle.ANALOG) {
-                        var numR by remember { mutableStateOf(DashStore.analogNumR.value) }
-                        BasicText(
-                            s.analogNumTitle,
-                            Modifier.padding(top = 18.dp, bottom = 8.dp),
-                            style = TextStyle(color = Color.White, fontSize = 18.sp),
-                        )
-                        TuneSlider("${s.analogNumLabel}   ${numR.toInt()}", numR, -24f, 40f) {
-                            numR = it
-                            DashStore.analogNumR.value = it                      // live (same process)
-                            prefs.edit().putFloat("analog_num_r", it).apply()    // persisted for OverlayService
-                        }
-                    }
-
                     Row80(
                         left = s.transpAuto, leftActive = auto, onLeft = { auto = true; push() },
                         right = s.close, onRight = { finish() },

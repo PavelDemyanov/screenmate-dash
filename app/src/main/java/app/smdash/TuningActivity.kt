@@ -33,9 +33,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.smdash.model.ApMode
 import app.smdash.model.CompactTuning
+import app.smdash.model.DashStore
 import app.smdash.model.DashStyle
 import app.smdash.model.DashboardState
 import app.smdash.model.TileTune
+import app.smdash.ui.AnalogTile
 import app.smdash.ui.MiniTile
 import app.smdash.ui.StackTile
 import app.smdash.ui.StripTile
@@ -69,7 +71,7 @@ class TuningActivity : ComponentActivity() {
                 )
                 // style tabs
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (s in listOf(DashStyle.STACK, DashStyle.STRIP, DashStyle.MINI)) {
+                    for (s in listOf(DashStyle.STACK, DashStyle.STRIP, DashStyle.MINI, DashStyle.ANALOG)) {
                         Chip(s.name, active = style == s) { style = s }
                     }
                 }
@@ -78,25 +80,44 @@ class TuningActivity : ComponentActivity() {
                     when (style) {
                         DashStyle.STACK -> StackTile(demo)
                         DashStyle.STRIP -> StripTile(demo)
+                        DashStyle.ANALOG -> AnalogTile(demo)
                         else -> MiniTile(demo)
                     }
                 }
-                // controls for the current style
-                val flow = CompactTuning.flow(style)
-                val t by flow.collectAsState()
-                val bump: (TileTune) -> Unit = { flow.value = it; CompactTuning.save(ctx) }
-                TuneRow("Цифры", t.digit) { bump(t.copy(digit = t.digit + it)) }
-                TuneRow("KM/H", t.kmh) { bump(t.copy(kmh = t.kmh + it)) }
-                TuneRow(if (style == DashStyle.STACK) "PRND" else "Передача", t.gear) { bump(t.copy(gear = t.gear + it)) }
-                TuneRow("Батарея", t.batt) { bump(t.copy(batt = t.batt + it)) }
-                TuneRow("Время", t.time) { bump(t.copy(time = t.time + it)) }
-                TuneRow("Знак лимита", t.limit) { bump(t.copy(limit = t.limit + it)) }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Chip("Показать значения", active = false) {
-                        dump = CompactTuning.dump(); Log.i("smdash-tune", "\n$dump")
+                if (style == DashStyle.ANALOG) {
+                    // ANALOG has one tunable: slide the speed numbers in/out radially from the centre.
+                    // Persist into the `overlay` prefs (`analog_num_r`) that OverlayService loads.
+                    val overlayPrefs = ctx.getSharedPreferences("overlay", MODE_PRIVATE)
+                    val numR by DashStore.analogNumR.collectAsState()
+                    TuneRow("Цифры (радиально)", numR) {
+                        val v = numR + it
+                        DashStore.analogNumR.value = v
+                        overlayPrefs.edit().putFloat("analog_num_r", v).apply()
                     }
-                    Chip("Сброс стиля", active = false) { bump(CompactTuning.def(style)) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Chip("Сброс", active = false) {
+                            DashStore.analogNumR.value = 0f
+                            overlayPrefs.edit().putFloat("analog_num_r", 0f).apply()
+                        }
+                    }
+                } else {
+                    // controls for the current compact style
+                    val flow = CompactTuning.flow(style)
+                    val t by flow.collectAsState()
+                    val bump: (TileTune) -> Unit = { flow.value = it; CompactTuning.save(ctx) }
+                    TuneRow("Цифры", t.digit) { bump(t.copy(digit = t.digit + it)) }
+                    TuneRow("KM/H", t.kmh) { bump(t.copy(kmh = t.kmh + it)) }
+                    TuneRow(if (style == DashStyle.STACK) "PRND" else "Передача", t.gear) { bump(t.copy(gear = t.gear + it)) }
+                    TuneRow("Батарея", t.batt) { bump(t.copy(batt = t.batt + it)) }
+                    TuneRow("Время", t.time) { bump(t.copy(time = t.time + it)) }
+                    TuneRow("Знак лимита", t.limit) { bump(t.copy(limit = t.limit + it)) }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Chip("Показать значения", active = false) {
+                            dump = CompactTuning.dump(); Log.i("smdash-tune", "\n$dump")
+                        }
+                        Chip("Сброс стиля", active = false) { bump(CompactTuning.def(style)) }
+                    }
                 }
                 if (dump.isNotEmpty()) {
                     BasicText(
