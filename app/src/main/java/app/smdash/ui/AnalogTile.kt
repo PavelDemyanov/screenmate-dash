@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -38,47 +37,42 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /* ================= ANALOG · round speedometer with a needle ("Speedometer v7") =================
- * Everything lives inside one 370px dial (the prototype's black rounded frame is intentionally
- * dropped — the tile is the circle itself). Geometry measured from the v7 prototype:
- *   dial angle for a value: dialA(v) = -120° + v/max*240°  (0° = up / 12 o'clock, CW positive)
- *   ticks every 10 at radius 175 (major every 20: 3×17, minor 2×9); redline (>= redlineV) red
- *   numbers every 20 at radius 153, upright; needle 132 up + 24 tail; hub 38.
- * Signals (Pavel's spec, beyond the prototype): a plain turn = green blinking arrow; a turn WITH a
- * blind spot on the SAME side (can't change lane) = RED arrow; hazard (both turns) = both arrows
- * blink in sync; a blind spot alone = amber side glow. */
+ * The prototype's black rounded frame is intentionally dropped — the tile is just the 370px dial.
+ * ALL coordinates below are MEASURED from the v7 prototype via getBoundingClientRect (centres, in
+ * the 370-circle frame, centre = 185,185): numbers on radius 126, KM/H at (185,106), gear (185,136),
+ * turn arrows (120,184)/(250,184), telltale row y=262, clock/sign y=309, hub 38 at centre.
+ *   dialA(v) = -120° + v/max*240°  (0° = up / 12 o'clock, CW positive); ticks every 10 on radius 175.
+ * z-order (matches the prototype): ticks/numbers/KM/H → gear/arrows/icons/clock/sign (z2) → NEEDLE
+ * (z3) → hub (z4, metallic conic) → blind glow (z5). So the needle draws OVER the gear, the hub OVER
+ * the needle.  Signals (Pavel's spec): plain turn = green blink; turn + blind spot same side = RED;
+ * hazard (both) = both blink in sync; blind spot alone = amber side glow. */
 
 private const val DIAL = 370f
 private const val CTR = 185f
 private const val TICK_OUTER = 175f
-private const val NUM_R = 153f
+private const val NUM_R = 126f      // number CENTRES (measured), not the tick edge
 
 private val TickWhite = Color(0xFFD8D8DA)
 private val TickRed = Color(0xFFFF5B5B)
 private val NumWhite = Color(0xFFE8E8EA)
 private val NeedleRed = Color(0xFFFF3A3A)
-private val ArrowGreen = Color(0xFF34E07A)
-private val ArrowRed = Color(0xFFE53935)
 private val SlotBg = Color(0x8C000000)
 private val SlotBorder = Color(0xFF2E2F34)
+private val ArrowGreen = Color(0xFF34E07A)
+private val ArrowRed = Color(0xFFE53935)
 
 private fun dialA(v: Float, max: Float) = -120f + v / max * 240f
 
-/** point at radius [r] and angle [deg] (0 = up, CW+), in the 370-unit dial space */
+/** point at radius [r], angle [deg] (0 = up, CW+), in the 370-unit dial frame */
 private fun dialPt(r: Float, deg: Float): Pair<Float, Float> {
     val rad = Math.toRadians(deg.toDouble())
     return (CTR + r * sin(rad)).toFloat() to (CTR - r * cos(rad)).toFloat()
 }
 
-/** a box of [w]×[h] centred at ([cx],[cy]) in dial space */
+/** a [w]×[h] box centred at ([cx],[cy]) in dial space */
 @Composable
 private fun BoxScope.CenterAt(cx: Float, cy: Float, w: Float, h: Float, content: @Composable BoxScope.() -> Unit) {
     Box(Modifier.offset((cx - w / 2f).dp, (cy - h / 2f).dp).size(w.dp, h.dp), contentAlignment = Alignment.Center, content = content)
-}
-
-/** a [w]-wide box whose TOP edge sits at [top], horizontally centred at [cx] (top:… ; left:50%) */
-@Composable
-private fun BoxScope.TopCenter(cx: Float, top: Float, w: Float, content: @Composable BoxScope.() -> Unit) {
-    Box(Modifier.offset((cx - w / 2f).dp, top.dp).width(w.dp), contentAlignment = Alignment.TopCenter, content = content)
 }
 
 private fun analogArrow(color: Color, left: Boolean) = listOf(
@@ -102,25 +96,21 @@ fun AnalogTile(state: DashboardState) {
     val face = 1f - state.bgTransparency.coerceIn(0f, 0.8f)
 
     Box(Modifier.size(DIAL.dp).clip(CircleShape)) {
-        // blind-spot side glow (amber) — only for a blind spot lit WITHOUT a turn on that side
-        if (state.blindLeft && !state.turnLeft) CompactBlindGlow(fromRight = false, end = 0.4f)
-        if (state.blindRight && !state.turnRight) CompactBlindGlow(fromRight = true, end = 0.4f)
-
-        // gauge: bezel + face + ticks + needle + hub (Canvas, resolution-independent)
+        // ---------- base: bezel + face + ticks (behind everything) ----------
         Canvas(Modifier.matchParentSize()) {
             val s = size.width / DIAL
             val c = Offset(CTR * s, CTR * s)
             drawCircle(
                 brush = Brush.sweepGradient(
-                    listOf(Color(0xFFBABCC0), Color(0xFF55585C), Color(0xFFE8EAEC), Color(0xFF4E5155), Color(0xFFBABCC0)),
-                    center = c,
+                    0f to Color(0xFFBABCC0), 0.22f to Color(0xFF55585C), 0.48f to Color(0xFFE8EAEC),
+                    0.72f to Color(0xFF4E5155), 1f to Color(0xFFBABCC0), center = c,
                 ),
                 radius = 185f * s, center = c,
             )
             drawCircle(
                 brush = Brush.radialGradient(
-                    listOf(Color(0xFF26272B), Color(0xFF121316)),
-                    center = Offset(c.x, size.height * 0.36f), radius = size.width * 0.7f,
+                    0f to Color(0xFF26272B), 0.7f to Color(0xFF121316),
+                    center = Offset(c.x, size.height * 0.36f), radius = size.width * 0.62f,
                 ),
                 radius = 174f * s, center = c, alpha = face,
             )
@@ -136,55 +126,29 @@ fun AnalogTile(state: DashboardState) {
                 drawLine(col, Offset(ox * s, oy * s), Offset(ix * s, iy * s), strokeWidth = w * s, cap = StrokeCap.Round)
                 v += 10
             }
-            val spd = state.speed.coerceIn(0, maxV.toInt())
-            rotate(dialA(spd.toFloat(), maxV), pivot = c) {
-                drawRoundRect(NeedleRed, topLeft = Offset(c.x - 2.5f * s, c.y - 132f * s), size = Size(5f * s, 132f * s), cornerRadius = CornerRadius(3f * s))
-                drawRoundRect(NeedleRed, topLeft = Offset(c.x - 3.5f * s, c.y), size = Size(7f * s, 24f * s), cornerRadius = CornerRadius(3f * s))
-            }
-            drawCircle(Color(0xFF3A3C40), radius = 19f * s, center = c)
-            drawCircle(
-                brush = Brush.radialGradient(listOf(Color(0xFFDDDEE0), Color(0xFF8A8C90)), center = Offset(c.x - 4f * s, c.y - 4f * s), radius = 18f * s),
-                radius = 14f * s, center = c,
-            )
         }
 
-        // numbers (every 20), upright
+        // ---------- numbers (centres on radius 126) + KM/H ----------
         var nv = 0
         while (nv <= maxV.toInt()) {
             val (x, y) = dialPt(NUM_R, dialA(nv.toFloat(), maxV))
             val col = if (nv >= redlineV) TickRed else NumWhite
-            CenterAt(x, y, 46f, 30f) {
+            CenterAt(x, y, 46f, 32f) {
                 BasicText("$nv", style = TextStyle(color = col, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center))
             }
             nv += 20
         }
-
-        // KM/H unit label (top:88)
-        TopCenter(CTR, 88f, 80f) {
+        CenterAt(CTR, 106f, 80f, 16f) {
             BasicText(if (mph) "MPH" else "KM/H", style = TextStyle(fontFamily = MartianMono, fontSize = 11.sp, letterSpacing = 0.34.em, color = Color(0xFF75777C)))
         }
 
-        // gear letter (top:110, 30×30 box)
-        CenterAt(CTR, 125f, 30f, 30f) {
+        // ---------- z2: gear, telltales, clock+sign ----------
+        CenterAt(CTR, 136f, 30f, 30f) {
             Box(Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x8C000000)).border(1.dp, SlotBorder, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
                 BasicText(state.gear.toString(), style = TextStyle(color = Color(0xFFF6F6F8), fontSize = 18.sp, fontWeight = FontWeight.Bold))
             }
         }
-
-        // turn arrows flanking the hub (left:92 / right:92, top:159)
-        val blink = turnBlinkAlpha()
-        val lCol = if (state.blindLeft) ArrowRed else ArrowGreen
-        val rCol = if (state.blindRight) ArrowRed else ArrowGreen
-        Box(Modifier.offset(92.dp, 159.dp).size(34.dp, 28.dp).alpha(if (state.turnLeft) blink else 0.1f)) {
-            VIcon(24f, 20f, analogArrow(lCol, left = true), Modifier.size(34.dp, 28.dp))
-        }
-        Box(Modifier.offset(244.dp, 159.dp).size(34.dp, 28.dp).alpha(if (state.turnRight) blink else 0.1f)) {
-            VIcon(24f, 20f, analogArrow(rCol, left = false), Modifier.size(34.dp, 28.dp))
-        }
-
-        // telltale row (top:236)
-        TopCenter(CTR, 236f, 200f) {
-            // only ACTIVE telltales get a circle (no empty dark dots when nothing is lit)
+        CenterAt(CTR, 262f, 200f, 34f) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 when (state.autopilot) {
                     ApMode.ON -> IconCircle { VIcon(24f, 24f, AP_PATHS, Modifier.size(22.dp)) }
@@ -200,9 +164,7 @@ fun AnalogTile(state: DashboardState) {
                 }
             }
         }
-
-        // clock + speed-limit sign (top:278)
-        TopCenter(CTR, 278f, 220f) {
+        CenterAt(CTR, 309f, 240f, 44f) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(verticalAlignment = Alignment.Bottom) {
                     BasicText(state.time, style = TextStyle(fontFamily = MartianMono, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFC8C9CD)))
@@ -214,7 +176,42 @@ fun AnalogTile(state: DashboardState) {
             }
         }
 
-        // HOLD STEERING WHEEL takeover (red halo + wheel), full-dial overlay
+        // ---------- z2: turn arrows flanking the hub (centres 120,184 / 250,184) ----------
+        val blink = turnBlinkAlpha()
+        CenterAt(120f, 184f, 34f, 28f) {
+            Box(Modifier.size(34.dp, 28.dp).alpha(if (state.turnLeft) blink else 0.1f)) {
+                VIcon(24f, 20f, analogArrow(if (state.blindLeft) ArrowRed else ArrowGreen, left = true), Modifier.size(34.dp, 28.dp))
+            }
+        }
+        CenterAt(250f, 184f, 34f, 28f) {
+            Box(Modifier.size(34.dp, 28.dp).alpha(if (state.turnRight) blink else 0.1f)) {
+                VIcon(24f, 20f, analogArrow(if (state.blindRight) ArrowRed else ArrowGreen, left = false), Modifier.size(34.dp, 28.dp))
+            }
+        }
+
+        // ---------- z3+z4: needle (OVER the gear) then the metallic hub (OVER the needle) ----------
+        Canvas(Modifier.matchParentSize()) {
+            val s = size.width / DIAL
+            val c = Offset(CTR * s, CTR * s)
+            val spd = state.speed.coerceIn(0, maxV.toInt())
+            rotate(dialA(spd.toFloat(), maxV), pivot = c) {
+                drawRoundRect(NeedleRed, topLeft = Offset(c.x - 2.5f * s, c.y - 132f * s), size = Size(5f * s, 132f * s), cornerRadius = CornerRadius(3f * s))
+                drawRoundRect(NeedleRed, topLeft = Offset(c.x - 3.5f * s, c.y), size = Size(7f * s, 24f * s), cornerRadius = CornerRadius(3f * s))
+            }
+            // metallic hub — conic (sweep) gradient, 38px
+            drawCircle(
+                brush = Brush.sweepGradient(
+                    listOf(Color(0xFFD9DADC), Color(0xFF5C5F63), Color(0xFFECEEF0), Color(0xFF55585C), Color(0xFFD9DADC)),
+                    center = c,
+                ),
+                radius = 19f * s, center = c,
+            )
+        }
+
+        // ---------- z5: blind-spot side glow (only a blind spot WITHOUT a turn on that side) ----------
+        if (state.blindLeft && !state.turnLeft) CompactBlindGlow(fromRight = false, end = 0.4f)
+        if (state.blindRight && !state.turnRight) CompactBlindGlow(fromRight = true, end = 0.4f)
+
         if (state.hold) AnalogTakeover()
     }
 }
