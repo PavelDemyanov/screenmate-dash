@@ -96,8 +96,8 @@ class TuningActivity : ComponentActivity() {
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Chip("Сброс", active = false) {
-                            DashStore.analogNumR.value = 0f
-                            overlayPrefs.edit().putFloat("analog_num_r", 0f).apply()
+                            DashStore.analogNumR.value = DashStore.ANALOG_NUM_R_DEFAULT
+                            overlayPrefs.edit().putFloat("analog_num_r", DashStore.ANALOG_NUM_R_DEFAULT).apply()
                         }
                     }
                 } else {
