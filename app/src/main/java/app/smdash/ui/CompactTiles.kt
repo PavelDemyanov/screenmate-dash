@@ -309,7 +309,7 @@ private fun BoxScope.CompactTakeover(row: Boolean, label: String, wheelDp: Float
  *  [mid] → 0 at [end]) plus a bright rim band (the CSS `inset … box-shadow`), blinking with the
  *  CSS `edgeblink` keyframes (0.68s period, ~44% duty, fast 40ms fade-out). Clipped by the card. */
 @Composable
-private fun BoxScope.CompactSignalGlow(fromRight: Boolean, end: Float, color: Color, a: Float) {
+internal fun BoxScope.CompactSignalGlow(fromRight: Boolean, end: Float, color: Color, a: Float) {
     // EVEN wash: high alpha at the edge fading UNIFORMLY (linear) to transparent by `end`. The
     // midpoint stop sits at half alpha + half distance so the falloff reads smooth end-to-end
     // instead of the old front-loaded spike (bright rim + steep drop). blink alpha `a` from the

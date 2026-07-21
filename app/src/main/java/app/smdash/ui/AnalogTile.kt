@@ -238,13 +238,22 @@ fun AnalogTile(state: DashboardState) {
             )
         }
 
-        // ---------- z5: blind-spot side glow (only a blind spot WITHOUT a turn on that side) ----------
-        // The glow lives INSIDE the dark face (clipped to the 348 inner circle via the 11dp padding),
-        // so the metallic bezel ring stays on top of it — the amber wash never tints the frame.
-        if ((state.blindLeft && !state.turnLeft) || (state.blindRight && !state.turnRight)) {
+        // ---------- z5: side glow under the bezel (clipped to the 348 inner face via 11dp padding,
+        // so the metallic ring always stays on top of it) ----------
+        //  • blind spot WITHOUT a turn that side → steady AMBER wash (informational: car alongside).
+        //  • blind spot WITH a turn that side (forbidden lane change) → RED wash blinking in sync with
+        //    the red arrow (same `blink` clock), so the whole side pulses red — a strong "don't move
+        //    over" cue on top of the red arrow.
+        val leftAmber = state.blindLeft && !state.turnLeft
+        val rightAmber = state.blindRight && !state.turnRight
+        val leftDanger = state.blindLeft && state.turnLeft
+        val rightDanger = state.blindRight && state.turnRight
+        if (leftAmber || rightAmber || leftDanger || rightDanger) {
             Box(Modifier.matchParentSize().padding(11.dp).clip(CircleShape)) {
-                if (state.blindLeft && !state.turnLeft) CompactBlindGlow(fromRight = false, end = 0.4f)
-                if (state.blindRight && !state.turnRight) CompactBlindGlow(fromRight = true, end = 0.4f)
+                if (leftAmber) CompactBlindGlow(fromRight = false, end = 0.4f)
+                if (rightAmber) CompactBlindGlow(fromRight = true, end = 0.4f)
+                if (leftDanger) CompactSignalGlow(fromRight = false, end = 0.44f, color = ArrowRed, a = blink)
+                if (rightDanger) CompactSignalGlow(fromRight = true, end = 0.44f, color = ArrowRed, a = blink)
             }
         }
 
