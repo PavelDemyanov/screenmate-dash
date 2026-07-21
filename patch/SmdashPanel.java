@@ -81,8 +81,8 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     static final String G_UPDATE_LATEST = "smdash_update_latest";  // app writes latest tag (e.g. "0.26")
     static final String G_UPDATE_STATUS = "smdash_update_status";  // "available"|"current"|"downloading"|"installing"|"error"
 
-    static final String[] KEYS = {"stock", "arc", "stack", "stacktemp", "strip", "mini"};
-    static final String[] LABELS = {"Stock", "Arc", "Stack", "Temp", "Strip", "Mini"};
+    static final String[] KEYS = {"stock", "arc", "stack", "stacktemp", "strip", "mini", "analog"};
+    static final String[] LABELS = {"Stock", "Arc", "Stack", "Temp", "Strip", "Mini", "Analog"};
 
     // palette (dark panel friendly)
     static final int ACCENT = 0xFF29E0A6;   // our dashboard green

@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import app.smdash.model.DashStore
 import app.smdash.model.DashStyle
 import app.smdash.model.DashboardState
+import app.smdash.ui.AnalogTile
 import app.smdash.ui.DashboardTile
 import app.smdash.ui.MiniTile
 import app.smdash.ui.StackTile
@@ -113,6 +114,7 @@ class SettingsActivity : ComponentActivity() {
                         StyleCard(s.styleStackTemp, DashStyle.STACK_TEMP, style == DashStyle.STACK_TEMP, live, Modifier.weight(1f)) { pickStyle(DashStyle.STACK_TEMP) }
                         StyleCard(s.styleStrip, DashStyle.STRIP, style == DashStyle.STRIP, live, Modifier.weight(1f)) { pickStyle(DashStyle.STRIP) }
                         StyleCard(s.styleMini, DashStyle.MINI, style == DashStyle.MINI, live, Modifier.weight(1f)) { pickStyle(DashStyle.MINI) }
+                        StyleCard(s.styleAnalog, DashStyle.ANALOG, style == DashStyle.ANALOG, live, Modifier.weight(1f)) { pickStyle(DashStyle.ANALOG) }
                     }
 
                     // ---- transparency ----
@@ -188,6 +190,7 @@ private fun TilePreview(style: DashStyle, live: DashboardState) {
                 DashStyle.STACK_TEMP -> StackTempTile(state)
                 DashStyle.STRIP -> StripTile(state)
                 DashStyle.MINI -> MiniTile(state)
+                DashStyle.ANALOG -> AnalogTile(state)
             }
         }
     }

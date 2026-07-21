@@ -337,7 +337,7 @@ private fun BoxScope.CompactSignalGlow(fromRight: Boolean, end: Float, color: Co
 /** Blind-spot warning, prototype-style: a wide gold wash from the edge (.6 → 0 at [end]),
  *  softly pulsing 50%↔100% (the CSS `blindpulse` 1s ease-in-out). Sits UNDER the content. */
 @Composable
-private fun BoxScope.CompactBlindGlow(fromRight: Boolean, end: Float) {
+internal fun BoxScope.CompactBlindGlow(fromRight: Boolean, end: Float) {
     val t = rememberInfiniteTransition(label = "blind")
     val a by t.animateFloat(
         initialValue = 0.5f, targetValue = 1f,

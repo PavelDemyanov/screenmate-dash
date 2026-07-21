@@ -57,6 +57,7 @@ import app.smdash.model.DashboardState
 import app.smdash.model.mockDashboardFlow
 import app.smdash.model.parseStockState
 import app.smdash.ui.DashboardTile
+import app.smdash.ui.AnalogTile
 import app.smdash.ui.MiniTile
 import app.smdash.ui.StackTile
 import app.smdash.ui.StackTempTile
@@ -380,6 +381,7 @@ class OverlayService : Service() {
                             DashStyle.STACK_TEMP -> StackTempTile(state)
                             DashStyle.STRIP -> StripTile(state)
                             DashStyle.MINI -> MiniTile(state)
+                            DashStyle.ANALOG -> AnalogTile(state)
                         }
                     }
                     // faint handle pill at the visible (scaled) bottom edge — only while collapsed

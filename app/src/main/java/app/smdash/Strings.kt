@@ -24,6 +24,7 @@ data class Strings(
     val styleStackTemp: String,
     val styleStrip: String,
     val styleMini: String,
+    val styleAnalog: String,
     // patcher progress (some are prefixes the patcher appends a value to)
     val connecting: String,
     val noRootPrefix: String,
@@ -84,6 +85,7 @@ data class Strings(
             styleStackTemp = "Temp",
             styleStrip = "Strip",
             styleMini = "Mini",
+            styleAnalog = "Analog",
             connecting = "Connecting to local adbd (127.0.0.1:5555)…",
             noRootPrefix = "✗ No root via adbd: ",
             rootOk = "✓ root acquired",
@@ -130,6 +132,7 @@ data class Strings(
             styleStackTemp = "Темп.",
             styleStrip = "Полоса",
             styleMini = "Мини",
+            styleAnalog = "Аналог",
             connecting = "Подключаюсь к локальному adbd (127.0.0.1:5555)…",
             noRootPrefix = "✗ Нет root через adbd: ",
             rootOk = "✓ root получен",

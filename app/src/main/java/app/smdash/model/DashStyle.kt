@@ -15,7 +15,10 @@ enum class DashStyle(val key: String, val wDp: Float, val hDp: Float) {
     // as STACK (300×230) — the two temps sit inside it at the left/right edges.
     STACK_TEMP("stacktemp", 300f, 230f),
     STRIP("strip", 552.7f, 114f), // exact prototype card size
-    MINI("mini", 232f, 249f);     // exact prototype card size
+    MINI("mini", 232f, 249f),     // exact prototype card size
+    // Analog round speedometer with a needle ("Speedometer v7"). Just the 370px dial — the
+    // prototype's black rounded frame is intentionally dropped, so the tile is the circle itself.
+    ANALOG("analog", 370f, 370f);
 
     val pxW: Int get() = (wDp * DENSITY).roundToInt()
     val pxH: Int get() = (hDp * DENSITY).roundToInt()
