@@ -27,8 +27,16 @@ object DashStore {
     val analogEdgeAlign = MutableStateFlow(true)
 }
 
-private fun field(s: String, key: String): String? =
-    Regex("[(, ]" + Regex.escape(key) + "=([^,)]*)").find(s)?.groupValues?.get(1)?.trim()
+/** Per-key compiled patterns. [parseStockState] pulls ~25 fields and runs on EVERY stock emission
+ *  (many per second while driving), so compiling a fresh [Regex] per field per frame was pure waste —
+ *  ~25 Pattern.compile calls a frame on the box's modest CPU. The key set is small and fixed, so
+ *  cache them; the map is only ever filled with the literal keys below. */
+private val FIELD_RE = HashMap<String, Regex>(32)
+
+private fun field(s: String, key: String): String? {
+    val re = FIELD_RE.getOrPut(key) { Regex("[(, ]" + Regex.escape(key) + "=([^,)]*)") }
+    return re.find(s)?.groupValues?.get(1)?.trim()
+}
 
 private fun bool(s: String, key: String): Boolean = field(s, key)?.equals("true", true) == true
 

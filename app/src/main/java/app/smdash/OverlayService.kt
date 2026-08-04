@@ -14,6 +14,8 @@ import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
+import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.os.SystemClock
 import android.provider.Settings
@@ -149,17 +151,32 @@ class OverlayService : Service() {
         )
     }
 
+    /** Dedicated thread for the STATE feed — see [stateReceiver]. */
+    private var stateThread: HandlerThread? = null
+
+    /** The vehicle-data feed, kept OFF the main thread. The stock broadcasts a fresh state on every
+     *  emission of its own flow (many per second while driving), and parsing that ~600-char string
+     *  used to run on the main thread, competing with the dashboard's own drawing and adding latency
+     *  to exactly the thing it feeds. Now the string is parsed on [stateThread] and only the finished
+     *  [DashboardState] hops to main to be applied. Window/view work stays in [receiver] (main
+     *  thread) — those branches touch the WindowManager and must not move off it. */
+    private val stateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: Intent?) {
+            val s = i?.getStringExtra("s") ?: return
+            realSeen = true
+            lastRealAtMs = SystemClock.elapsedRealtime()
+            mockActive = false
+            val parsed = runCatching { parseStockState(s) }.getOrNull() ?: return
+            scope.launch {
+                mockJob?.cancel() // real data arrived → stop the emulator demo loop
+                pushState(parsed)
+            }
+        }
+    }
+
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
             when (i?.action) {
-                ACTION_STATE -> {
-                    val s = i.getStringExtra("s") ?: return
-                    realSeen = true
-                    lastRealAtMs = SystemClock.elapsedRealtime()
-                    mockActive = false
-                    mockJob?.cancel() // real data arrived → stop the emulator demo loop
-                    runCatching { pushState(parseStockState(s)) }
-                }
                 // 5 taps on the STOCK dashboard land here with NO style extra → enter the cycle at
                 // the FIRST style (Arc); the settings panel sends a "style" extra to jump straight to
                 // the chosen style. Either way this re-arms the master gate (a pick means "show it").
@@ -267,11 +284,17 @@ class OverlayService : Service() {
         registerReceiver(
             receiver,
             IntentFilter().apply {
-                addAction(ACTION_STATE); addAction(ACTION_SHOW_OURS); addAction(ACTION_SHOW_STOCK)
+                addAction(ACTION_SHOW_OURS); addAction(ACTION_SHOW_STOCK)
                 addAction(ACTION_HIDE_ALL); addAction(ACTION_SET_TRANSP); addAction(ACTION_SEND_REPORT)
                 addAction(ACTION_CHECK_UPDATE); addAction(ACTION_DO_UPDATE)
             },
             Context.RECEIVER_EXPORTED,
+        )
+        // The high-rate vehicle-data feed gets its own thread so parsing never lands on main.
+        val st = HandlerThread("smdash-state").also { it.start() }
+        stateThread = st
+        registerReceiver(
+            stateReceiver, IntentFilter(ACTION_STATE), null, Handler(st.looper), Context.RECEIVER_EXPORTED,
         )
 
         dashScale.value = prefs.getFloat("scale", 1f).coerceIn(MIN_SCALE, 1f)
@@ -781,6 +804,9 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         runCatching { unregisterReceiver(receiver) }
+        runCatching { unregisterReceiver(stateReceiver) }
+        runCatching { stateThread?.quitSafely() }
+        stateThread = null
         runCatching { scope.cancel() }
         view?.let { runCatching { wm.removeView(it) } }
         touchView?.let { runCatching { wm.removeView(it) } }
