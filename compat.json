@@ -6,9 +6,12 @@
     "and Android blocks downgrading back. Add an entry in the SAME commit that bumps",
     "Patcher.REQUIRED_STOCK_PREFIX, and push it BEFORE publishing the release.",
     "Read over raw.githubusercontent.com: no auth, no API rate limit (the GitHub API's 60/h is",
-    "why the updater resolves the latest tag from the /releases/latest redirect instead)."
+    "why the updater resolves the latest tag from the /releases/latest redirect instead).",
+    "EVERY published release needs an entry: a release missing here is never offered, because it",
+    "fails the compatibility filter AND leaves the 'what does the newest need?' lookup empty."
   ],
   "releases": [
+    { "app": "0.37", "stock": "1.14" },
     { "app": "0.36", "stock": "1.14" },
     { "app": "0.35", "stock": "1.10" },
     { "app": "0.34", "stock": "1.10" },
