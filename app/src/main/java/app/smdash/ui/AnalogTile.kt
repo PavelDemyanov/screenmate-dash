@@ -1,5 +1,8 @@
 package app.smdash.ui
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -220,11 +223,20 @@ fun AnalogTile(state: DashboardState) {
         }
 
         // ---------- z3+z4: needle (OVER the gear) then the metallic hub (OVER the needle) ----------
+        // The car reports WHOLE km/h, so the raw angle jumps ~1.1° per step and the needle visibly
+        // ticks between values instead of sweeping. Damp it like a real gauge: a CRITICALLY damped
+        // spring (no bounce — a needle that overshot the speed and settled back would be reading the
+        // car wrong for a moment), stiff enough that a step settles in ~0.2 s. That's smooth to the
+        // eye while staying far below any lag you could feel against the road.
+        val needleA by animateFloatAsState(
+            targetValue = dialA(state.speed.coerceIn(0, maxV.toInt()).toFloat(), maxV),
+            animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 400f),
+            label = "needle",
+        )
         Canvas(Modifier.matchParentSize()) {
             val s = size.width / DIAL
             val c = Offset(CTR * s, CTR * s)
-            val spd = state.speed.coerceIn(0, maxV.toInt())
-            rotate(dialA(spd.toFloat(), maxV), pivot = c) {
+            rotate(needleA, pivot = c) {
                 drawRoundRect(NeedleRed, topLeft = Offset(c.x - 2.5f * s, c.y - 132f * s), size = Size(5f * s, 132f * s), cornerRadius = CornerRadius(3f * s))
                 drawRoundRect(NeedleRed, topLeft = Offset(c.x - 3.5f * s, c.y), size = Size(7f * s, 24f * s), cornerRadius = CornerRadius(3f * s))
             }
