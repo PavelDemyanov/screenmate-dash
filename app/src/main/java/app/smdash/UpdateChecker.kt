@@ -34,9 +34,17 @@ object UpdateChecker {
     // Stable "latest asset" URL — always serves the newest SMDashPatcher.apk (we clobber every tag).
     const val APK_URL = "https://github.com/$REPO/releases/latest/download/SMDashPatcher.apk"
 
+    /** Machine-readable "which Screenmate does each release need" manifest, kept in the repo. Served
+     *  by raw.githubusercontent (no auth, no API rate limit — the same reason we resolve the latest
+     *  tag from a redirect rather than the API). */
+    private const val COMPAT_URL = "https://raw.githubusercontent.com/$REPO/main/compat.json"
+
+    private const val STOCK_PKG = "co.teslogic.screenmate"
+
     /** Global keys the injected settings panel reads (it can't query our package directly). */
-    const val GLOBAL_LATEST = "smdash_update_latest"   // latest tag seen, e.g. "0.26" ("" if unknown)
-    const val GLOBAL_STATUS = "smdash_update_status"   // "available" | "current" | "downloading" | "installing" | "error"
+    const val GLOBAL_LATEST = "smdash_update_latest"   // version we'd install, e.g. "0.26" ("" if unknown)
+    const val GLOBAL_STATUS = "smdash_update_status"   // "available"|"current"|"blocked_stock"|"downloading"|"installing"|"error"
+    const val GLOBAL_NEEDS_STOCK = "smdash_update_needs_stock" // when blocked: Screenmate version required
 
     /** Throttle automatic checks (panel-open can fire this repeatedly). */
     private const val MIN_INTERVAL_MS = 30 * 60 * 1000L
@@ -71,6 +79,77 @@ object UpdateChecker {
             if (x != y) return x > y
         }
         return false
+    }
+
+    /** Component-wise numeric compare: <0 = [a] older, 0 = same, >0 = [a] newer. Handles 1.10 > 1.9. */
+    private fun cmp(a: String, b: String): Int {
+        val x = parts(a); val y = parts(b)
+        for (i in 0 until maxOf(x.size, y.size)) {
+            val d = x.getOrElse(i) { 0 } - y.getOrElse(i) { 0 }
+            if (d != 0) return d
+        }
+        return 0
+    }
+
+    /** The Screenmate build installed on this box, e.g. "1.14" — read straight from PackageManager
+     *  (no root needed; the manifest declares a <queries> entry so it stays visible on API 30+). */
+    fun stockVersion(ctx: Context): String =
+        runCatching { ctx.packageManager.getPackageInfo(STOCK_PKG, 0).versionName }.getOrNull().orEmpty()
+
+    /** app version → required Screenmate version, from [COMPAT_URL]. null = couldn't fetch/parse. */
+    private fun fetchCompat(): Map<String, String>? {
+        val body = httpGet(COMPAT_URL) ?: return null
+        return try {
+            val arr = org.json.JSONObject(body).getJSONArray("releases")
+            buildMap {
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    val app = o.optString("app").trim()
+                    val stock = o.optString("stock").trim()
+                    if (app.isNotEmpty() && stock.isNotEmpty()) put(app, stock)
+                }
+            }.takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            Log.w(TAG, "compat.json parse failed", e); null
+        }
+    }
+
+    /** What the updater intends to do. [offer] is the version to install (or the blocked one). */
+    data class Plan(val status: String, val offer: String, val needsStock: String)
+
+    /**
+     * Decide what (if anything) to offer. The point of the compatibility gate: a release whose patch
+     * targets a NEWER Screenmate than this box runs cannot mount — it would drop the dashboard into
+     * demo mode on the next reboot, and Android refuses the downgrade back, so the user would have to
+     * uninstall (losing their settings) to recover. So we never offer such a release; we offer the
+     * newest release this box's Screenmate can actually run, and if something newer exists but is
+     * gated, we say WHICH Screenmate it needs instead of showing an Update button.
+     *
+     * Fail-open by design: if the manifest or the stock version can't be read (offline, blocked host,
+     * stock missing) we fall back to the old "offer the latest" behaviour rather than freezing updates
+     * — [Patcher] still refuses to mount a mismatched patch, so that path stays safe, just less helpful.
+     */
+    private fun plan(ctx: Context): Plan? {
+        val latest = fetchLatestTag()?.removePrefix("v") ?: return null
+        val cur = currentVersion(ctx)
+        val compat = fetchCompat()
+        val stock = stockVersion(ctx)
+        if (compat == null || stock.isEmpty()) {
+            Log.i(TAG, "compat unavailable (compat=${compat != null} stock='$stock') — ungated fallback")
+            return Plan(if (isNewer(latest, cur)) "available" else "current", latest, "")
+        }
+        // Newest release that actually exists (<= latest) AND that this box's Screenmate satisfies.
+        // The "<= latest" clamp means an entry added to compat.json before its release is published
+        // is harmless.
+        val best = compat.keys
+            .filter { cmp(it, latest) <= 0 && cmp(stock, compat.getValue(it)) >= 0 }
+            .maxWithOrNull { a, b -> cmp(a, b) }
+        if (best != null && isNewer(best, cur)) return Plan("available", best, "")
+        val needed = compat[latest]
+        if (isNewer(latest, cur) && needed != null && cmp(stock, needed) < 0) {
+            return Plan("blocked_stock", latest, needed)
+        }
+        return Plan("current", latest, "")
     }
 
     /** Resolve the latest release tag via the redirect Location (no API). Blocking — off-main-thread. */
@@ -122,13 +201,13 @@ object UpdateChecker {
         if (!force && now - p.getLong(PREF_LAST_CHECK, 0) < MIN_INTERVAL_MS) return
         p.edit().putLong(PREF_LAST_CHECK, now).apply()
 
-        val latest = fetchLatestTag() ?: return // network hiccup: leave the last verdict untouched
+        val pl = plan(ctx) ?: return // network hiccup: leave the last verdict untouched
         if (updating.get()) return // an update started while we were fetching — don't clobber its status
-        val current = currentVersion(ctx)
-        putGlobal(ctx, GLOBAL_LATEST, latest.removePrefix("v"))
-        val status = if (isNewer(latest, current)) "available" else "current"
-        putGlobal(ctx, GLOBAL_STATUS, status)
-        Log.i(TAG, "check: latest=$latest current=$current -> $status")
+        putGlobal(ctx, GLOBAL_LATEST, pl.offer)
+        putGlobal(ctx, GLOBAL_STATUS, pl.status)
+        putGlobal(ctx, GLOBAL_NEEDS_STOCK, pl.needsStock)
+        Log.i(TAG, "check: offer=${pl.offer} status=${pl.status} needsStock='${pl.needsStock}' " +
+            "current=${currentVersion(ctx)} stock=${stockVersion(ctx)}")
     }
 
     /**
@@ -143,8 +222,25 @@ object UpdateChecker {
         if (!updating.compareAndSet(false, true)) { Log.i(TAG, "update already running"); return }
         val apk = File(ctx.cacheDir, "smdash_update.apk")
         try {
+            // Re-plan rather than trusting whatever status is sitting in Settings.Global: this action
+            // is exported (the stock-process panel must reach it), so anyone can fire it, and the
+            // globals are world-writable. If the compatibility gate says no, refuse here too —
+            // otherwise a stray broadcast could still pull an un-mountable build onto an older box.
+            val pl = plan(ctx)
+            if (pl == null) {
+                putGlobal(ctx, GLOBAL_STATUS, "error"); Log.w(TAG, "update: cannot resolve a target"); return
+            }
+            if (pl.status == "blocked_stock") {
+                putGlobal(ctx, GLOBAL_STATUS, "blocked_stock")
+                putGlobal(ctx, GLOBAL_NEEDS_STOCK, pl.needsStock)
+                Log.w(TAG, "update refused: v${pl.offer} needs Screenmate ${pl.needsStock}, box has ${stockVersion(ctx)}")
+                return
+            }
+            if (pl.status != "available") { putGlobal(ctx, GLOBAL_STATUS, "current"); return }
             putGlobal(ctx, GLOBAL_STATUS, "downloading")
-            if (!download(APK_URL, apk)) {
+            // Download THAT version's asset, not "latest" — on an older box the newest compatible
+            // release may be several tags behind the newest release.
+            if (!download(apkUrlFor(pl.offer), apk)) {
                 putGlobal(ctx, GLOBAL_STATUS, "error")
                 Log.w(TAG, "download failed"); return
             }
@@ -193,6 +289,31 @@ object UpdateChecker {
 
     private fun ByteArray.toHexString(): String =
         joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    /** Asset URL for a SPECIFIC release. Every tag serves its own APK (verified), which is what lets
+     *  an older box be offered the newest build IT can run — so do NOT clobber old tags with the
+     *  newest APK, or this silently hands everyone the newest (un-mountable) build. */
+    private fun apkUrlFor(version: String): String =
+        "https://github.com/$REPO/releases/download/v$version/SMDashPatcher.apk"
+
+    /** Small HTTPS GET returning the body as text (used for the compatibility manifest). */
+    private fun httpGet(url: String): String? {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = true
+                connectTimeout = 12000
+                readTimeout = 12000
+                setRequestProperty("User-Agent", "SMDash-Updater")
+            }
+            if (conn.responseCode !in 200..299) { Log.w(TAG, "compat http ${conn.responseCode}"); return null }
+            conn.inputStream.bufferedReader().use { it.readText() }.takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            Log.w(TAG, "httpGet failed: $url", e); null
+        } finally {
+            runCatching { conn?.disconnect() }
+        }
+    }
 
     /** Straight HTTPS GET to a file, following GitHub's redirect to the asset CDN. */
     private fun download(url: String, dst: File): Boolean {

@@ -38,7 +38,7 @@ object Patcher {
     // 359fd3ad… = v0.26: stock speed label English "KPH" + panel "Update to vX" button (inert-busy fix).
     // 0a608da0… = v0.30 (1.8-based, panel + Temp style).
     // 26a21ad0… = v0.32: re-based onto stock **1.9** (hooks re-ported; stock moved back to /system_ext).
-    const val PATCHED_MD5 = "4901f2576d5c28c376d1cc3ebcca4d20"
+    const val PATCHED_MD5 = "ad1327d3cd6facab6d103aafc44eebbe"
 
     // The patch is built for stock Screenmate v1.9 (its smali hooks are ported onto v1.9's code).
     // On a MISMATCHED stock it would mount but silently fail — the data hook never fires, so the
@@ -157,8 +157,11 @@ object Patcher {
                 // Direction matters: a user BELOW 1.8 (e.g. 1.7) should update Screenmate to 1.8; a user
                 // ABOVE it (e.g. 1.9 — Screenmate shipped a newer stock) can't "downgrade to 1.8", so
                 // tell them SM Dash itself needs an update to support their newer stock.
-                if (stockVsRequired(ver) < 0) log(s.wrongStockOldPrefix + ver + s.wrongStockOldSuffix)
-                else log(s.wrongStockNewPrefix + ver + s.wrongStockNewSuffix)
+                if (stockVsRequired(ver) < 0) {
+                    log(s.wrongStockOldPrefix + REQUIRED_STOCK_PREFIX + s.wrongStockOldMid + ver + s.wrongStockOldSuffix)
+                } else {
+                    log(s.wrongStockNewPrefix + REQUIRED_STOCK_PREFIX + s.wrongStockNewMid + ver + s.wrongStockNewSuffix)
+                }
                 return false
             }
 

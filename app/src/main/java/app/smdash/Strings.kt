@@ -38,11 +38,14 @@ data class Strings(
     val busy: String,
     val notFound: String,
     // shown when the stock Screenmate version isn't the one the patch is built for. The patcher
-    // appends the found version between prefix/suffix: prefix + "1.9" + suffix. Two directions:
-    // OLD = the device is behind 1.8 (update Screenmate); NEW = the device is ahead (SM Dash update needed).
+    // Composed as: prefix + <required> + mid + <found> + suffix — the versions are interpolated, never
+    // hardcoded, so these survive every re-base. Two directions: OLD = the box is BEHIND (update
+    // Screenmate, and the suffix says exactly how); NEW = the box is AHEAD (update SM Dash).
     val wrongStockOldPrefix: String,
+    val wrongStockOldMid: String,
     val wrongStockOldSuffix: String,
     val wrongStockNewPrefix: String,
+    val wrongStockNewMid: String,
     val wrongStockNewSuffix: String,
     val corrupt: String,
     val alreadyActive: String,
@@ -99,10 +102,15 @@ data class Strings(
             mountFailed = "✗ Mount didn't apply",
             busy = "⏳ Busy — a patch operation is already running.",
             notFound = "✗ Screenmate stock dashboard not found — nothing to patch on this device.",
-            wrongStockOldPrefix = "✗ This patch needs Screenmate 1.8, but this device has ",
-            wrongStockOldSuffix = ". Update the Screenmate app to 1.8 (Settings → Software), then Install patch again.",
-            wrongStockNewPrefix = "✗ This patch is built for Screenmate 1.8, but this device has ",
-            wrongStockNewSuffix = " — a newer stock. SM Dash needs an update to support it; please watch for a new release.",
+            wrongStockOldPrefix = "✗ This patch needs Screenmate ",
+            wrongStockOldMid = ", but this box has ",
+            wrongStockOldSuffix = ". Open the \"Updater\" app on your Screenmate box, install the update and reboot — " +
+                "Screenmate ships with the box firmware, so it updates there, not from inside Screenmate itself. " +
+                "Then tap Install patch again.",
+            wrongStockNewPrefix = "✗ This patch is built for Screenmate ",
+            wrongStockNewMid = ", but this box already has ",
+            wrongStockNewSuffix = " — a newer stock. Update SM Dash: open the SM DASH panel in Screenmate settings " +
+                "and use the update button there, or download the latest release from GitHub.",
             corrupt = "✗ Patch file integrity check failed — aborted, nothing changed.",
             alreadyActive = "✓ Patch already active — re-checked everything, all good.",
             done = "✓ Done — patch active",
@@ -148,10 +156,15 @@ data class Strings(
             mountFailed = "✗ Маунт не применился",
             busy = "⏳ Занято — операция уже выполняется.",
             notFound = "✗ Стоковый дашборд Screenmate не найден — на этом устройстве патчить нечего.",
-            wrongStockOldPrefix = "✗ Патч рассчитан на Screenmate 1.8, а на устройстве ",
-            wrongStockOldSuffix = ". Обновите приложение Screenmate до 1.8 (Настройки → Software) и снова нажмите Install patch.",
-            wrongStockNewPrefix = "✗ Патч собран под Screenmate 1.8, а на устройстве ",
-            wrongStockNewSuffix = " — более новый сток. Нужно обновление SM Dash для его поддержки; ждите новый релиз.",
+            wrongStockOldPrefix = "✗ Патчу нужен Screenmate ",
+            wrongStockOldMid = ", а на боксе ",
+            wrongStockOldSuffix = ". Откройте на боксе приложение «Updater», установите обновление и перезагрузитесь — " +
+                "Screenmate входит в прошивку бокса и обновляется там, а не изнутри самого Screenmate. " +
+                "Потом снова нажмите Install patch.",
+            wrongStockNewPrefix = "✗ Патч собран под Screenmate ",
+            wrongStockNewMid = ", а на боксе уже ",
+            wrongStockNewSuffix = " — более новый сток. Обновите SM Dash: откройте панель SM DASH в настройках " +
+                "Screenmate и нажмите кнопку обновления, либо скачайте свежий релиз с GitHub.",
             corrupt = "✗ Проверка целостности патча не прошла — отменено, ничего не изменено.",
             alreadyActive = "✓ Патч уже активен — всё перепроверено, порядок.",
             done = "✓ Готово — патч активен",

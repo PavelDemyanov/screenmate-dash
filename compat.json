@@ -1,0 +1,22 @@
+{
+  "_comment": [
+    "Which Screenmate (stock) build each SM Dash release needs.",
+    "The in-app updater fetches this before offering an update, so it never pushes a release",
+    "whose patch cannot apply to the box — installing one leaves the dashboard in demo mode,",
+    "and Android blocks downgrading back. Add an entry in the SAME commit that bumps",
+    "Patcher.REQUIRED_STOCK_PREFIX, and push it BEFORE publishing the release.",
+    "Read over raw.githubusercontent.com: no auth, no API rate limit (the GitHub API's 60/h is",
+    "why the updater resolves the latest tag from the /releases/latest redirect instead)."
+  ],
+  "releases": [
+    { "app": "0.36", "stock": "1.14" },
+    { "app": "0.35", "stock": "1.10" },
+    { "app": "0.34", "stock": "1.10" },
+    { "app": "0.33", "stock": "1.9" },
+    { "app": "0.32", "stock": "1.9" },
+    { "app": "0.31", "stock": "1.8" },
+    { "app": "0.30", "stock": "1.8" },
+    { "app": "0.29", "stock": "1.8" },
+    { "app": "0.28", "stock": "1.8" }
+  ]
+}

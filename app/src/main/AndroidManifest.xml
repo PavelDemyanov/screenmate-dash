@@ -10,6 +10,12 @@
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
 
+    <!-- API 30+ hides other packages by default. The updater needs the stock's versionName to know
+         which of our releases can actually patch this box (see UpdateChecker.plan). -->
+    <queries>
+        <package android:name="co.teslogic.screenmate" />
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
