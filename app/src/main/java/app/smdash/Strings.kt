@@ -104,9 +104,9 @@ data class Strings(
             notFound = "✗ Screenmate stock dashboard not found — nothing to patch on this device.",
             wrongStockOldPrefix = "✗ This patch needs Screenmate ",
             wrongStockOldMid = ", but this box has ",
-            wrongStockOldSuffix = ". Open the \"Updater\" app on your Screenmate box, install the update and reboot — " +
-                "Screenmate ships with the box firmware, so it updates there, not from inside Screenmate itself. " +
-                "Then tap Install patch again.",
+            wrongStockOldSuffix = ". Screenmate usually updates itself in the background — leave the box online for a " +
+                "while and check again. If it stays behind, open the \"Updater\" app on the box, install any pending " +
+                "update and reboot (some Screenmate versions arrive with the box firmware). Then tap Install patch again.",
             wrongStockNewPrefix = "✗ This patch is built for Screenmate ",
             wrongStockNewMid = ", but this box already has ",
             wrongStockNewSuffix = " — a newer stock. Update SM Dash: open the SM DASH panel in Screenmate settings " +
@@ -158,9 +158,9 @@ data class Strings(
             notFound = "✗ Стоковый дашборд Screenmate не найден — на этом устройстве патчить нечего.",
             wrongStockOldPrefix = "✗ Патчу нужен Screenmate ",
             wrongStockOldMid = ", а на боксе ",
-            wrongStockOldSuffix = ". Откройте на боксе приложение «Updater», установите обновление и перезагрузитесь — " +
-                "Screenmate входит в прошивку бокса и обновляется там, а не изнутри самого Screenmate. " +
-                "Потом снова нажмите Install patch.",
+            wrongStockOldSuffix = ". Обычно Screenmate обновляется сам в фоне — дайте боксу побыть в сети и проверьте снова. " +
+                "Если версия не растёт, откройте на боксе приложение «Updater», установите обновление и перезагрузитесь " +
+                "(часть версий Screenmate приезжает вместе с прошивкой). Потом снова нажмите Install patch.",
             wrongStockNewPrefix = "✗ Патч собран под Screenmate ",
             wrongStockNewMid = ", а на боксе уже ",
             wrongStockNewSuffix = " — более новый сток. Обновите SM Dash: откройте панель SM DASH в настройках " +
