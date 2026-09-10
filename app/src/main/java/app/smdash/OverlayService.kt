@@ -31,10 +31,14 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -49,7 +53,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
@@ -74,6 +82,44 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+
+/**
+ * Covers ANY dashboard style once Screenmate has updated past the version this patch was built for
+ * AND the data feed has died with it. It deliberately hides the tile rather than sitting beside it:
+ * the numbers underneath are the last ones we ever received, and a speedometer confidently showing a
+ * stale speed is worse than one that admits it has nothing. Text is English — the on-car surface
+ * (panel, toasts, KM/H) is English by convention; only the installer UI localises.
+ */
+@Composable
+private fun BoxScope.StaleBanner(needStock: String, ready: String) {
+    Box(
+        Modifier.matchParentSize().background(Color(0xFF0B0C0E)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier.padding(horizontal = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            BasicText(
+                "NO LIVE DATA",
+                style = TextStyle(color = Color(0xFFF2564B), fontSize = 13.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
+            )
+            BasicText(
+                "Screenmate updated — this SM Dash is built for $needStock",
+                Modifier.padding(top = 6.dp),
+                style = TextStyle(color = Color(0xFFC8C9CD), fontSize = 11.sp, textAlign = TextAlign.Center),
+            )
+            BasicText(
+                if (ready.isNotEmpty()) "Open SM Dash to update to v$ready" else "Waiting for a matching SM Dash release",
+                Modifier.padding(top = 4.dp),
+                style = TextStyle(
+                    color = if (ready.isNotEmpty()) Color(0xFF29E0A6) else Color(0xFF8A9099),
+                    fontSize = 11.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                ),
+            )
+        }
+    }
+}
 
 /** Foreground service: draws the dashboard as a draggable system overlay over the
  *  Tesla video. Five quick taps hide it (revealing the stock dashboard underneath);
@@ -149,6 +195,45 @@ class OverlayService : Service() {
             turnLeft = lastState.turnLeft || heldLeft,
             turnRight = lastState.turnRight || heldRight,
         )
+    }
+
+    /**
+     * Notices when Screenmate updates out from under us. That single event takes away BOTH the data
+     * feed and the injected settings panel — which is where every "an update is available" message
+     * used to live — so without this the user is left with a dashboard quietly showing the last
+     * numbers it ever received, and nothing anywhere telling them why.
+     *
+     * The trigger is the deterministic one (installed stock vs the version this patch is built for),
+     * NOT a data-timeout: the stock legitimately goes quiet at times. But we only raise it once the
+     * feed has ALSO actually died, because right after a stock update the previous bind-mount can
+     * still be live until the next reboot — and covering a working dashboard would be worse than the
+     * problem we are reporting.
+     */
+    private fun startStockWatch() {
+        scope.launch {
+            while (true) {
+                val ver = withContext(Dispatchers.IO) {
+                    runCatching { UpdateChecker.stockVersion(this@OverlayService) }.getOrDefault("")
+                }
+                val mismatch = ver.isNotEmpty() && !ver.startsWith(Patcher.REQUIRED_STOCK_PREFIX)
+                val dead = realSeen && SystemClock.elapsedRealtime() - lastRealAtMs > STALE_MS
+                val raise = mismatch && dead
+                DashStore.stockMismatch.value = if (raise) Patcher.REQUIRED_STOCK_PREFIX else ""
+                if (raise) {
+                    runCatching {
+                        withContext(Dispatchers.IO) { UpdateChecker.check(this@OverlayService, force = true) }
+                    }
+                    val st = runCatching {
+                        Settings.Global.getString(contentResolver, UpdateChecker.GLOBAL_STATUS)
+                    }.getOrNull().orEmpty()
+                    val target = runCatching {
+                        Settings.Global.getString(contentResolver, UpdateChecker.GLOBAL_LATEST)
+                    }.getOrNull().orEmpty()
+                    DashStore.updateReady.value = if (st == "available") target else ""
+                }
+                delay(STOCK_WATCH_MS)
+            }
+        }
     }
 
     /** Dedicated thread for the STATE feed — see [stateReceiver]. */
@@ -277,6 +362,7 @@ class OverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         startForegroundNotif()
+        startStockWatch()
         prefs = getSharedPreferences("overlay", MODE_PRIVATE)
         app.smdash.model.CompactTuning.load(this) // apply Pavel's per-element text nudges to the live tiles
         owner.create()
@@ -407,6 +493,15 @@ class OverlayService : Service() {
                             DashStyle.STRIP -> StripTile(state)
                             DashStyle.MINI -> MiniTile(state)
                             DashStyle.ANALOG -> AnalogTile(state)
+                        }
+                        // The stock updated out from under us: the patch is gone, and with it the
+                        // settings panel that used to announce updates. The overlay is the only
+                        // surface of ours the user still sees, so it has to carry the news — and it
+                        // must NOT keep presenting the frozen last reading as if it were live.
+                        val needStock by DashStore.stockMismatch.collectAsState()
+                        if (needStock.isNotEmpty()) {
+                            val ready by DashStore.updateReady.collectAsState()
+                            StaleBanner(needStock, ready)
                         }
                     }
                     // faint handle pill at the visible (scaled) bottom edge — only while collapsed
@@ -860,6 +955,9 @@ class OverlayService : Service() {
 
         /** how long to keep a turn signal latched after the last pulse (~2 blink cycles) */
         const val TURN_HOLD_MS = 1500L
+        /** feed considered dead after this long without a STATE broadcast */
+        const val STALE_MS = 90_000L
+        const val STOCK_WATCH_MS = 60_000L
 
         // tile size now lives per style in [DashStyle] (ARC = the historical 570×569)
         /** visible bottom-edge Y (parent coords) when collapsed — the handle pill peeks here */

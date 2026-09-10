@@ -21,6 +21,17 @@ object DashStore {
 
     const val ANALOG_NUM_R_DEFAULT = -6f
 
+    /** Non-empty when our patch cannot be applied to the Screenmate that is actually installed —
+     *  i.e. the stock updated out from under us. That is the moment the injected settings panel
+     *  disappears together with the patch, so the OVERLAY has to carry the message: it is the only
+     *  surface of ours the user still sees. Holds the required stock version, e.g. "1.19". */
+    val stockMismatch = MutableStateFlow("")
+
+    /** Version we could update to right now ("" = none/unknown), mirrored from the update check so
+     *  the overlay banner can say whether a fix already exists. */
+    val updateReady = MutableStateFlow("")
+
+
     /** ANALOG dial: number alignment. true = align each number's OUTER edge (the digit nearest the
      *  ticks) onto one radius, so the gap to the ticks is even whether the number is 1 or 3 digits
      *  (how real gauges do it); false = the classic centre-on-one-radius layout. Toggle in the tuner. */

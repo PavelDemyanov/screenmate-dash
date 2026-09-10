@@ -45,7 +45,7 @@ object Patcher {
     // overlay sits in the demo animation forever (seen in a real user's diagnostic report). We refuse
     // to mount unless the stock version matches, and tell the user (directionally) to update
     // Screenmate (if older) or wait for a new SM Dash (if newer). Bump this on every re-base.
-    private const val REQUIRED_STOCK_PREFIX = "1.18"
+    const val REQUIRED_STOCK_PREFIX = "1.18"
 
     /** guards apply()/revert() against overlapping runs (rapid taps, boot firing mid-tap, …) */
     private val running = AtomicBoolean(false)

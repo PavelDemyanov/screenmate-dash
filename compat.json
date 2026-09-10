@@ -11,6 +11,7 @@
     "fails the compatibility filter AND leaves the 'what does the newest need?' lookup empty."
   ],
   "releases": [
+    { "app": "0.40", "stock": "1.18" },
     { "app": "0.39", "stock": "1.18" },
     { "app": "0.38", "stock": "1.17" },
     { "app": "0.37", "stock": "1.14" },

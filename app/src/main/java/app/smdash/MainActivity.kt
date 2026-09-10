@@ -37,6 +37,11 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import app.smdash.ui.TuningScreen
 
 /** Control panel: install/remove the system patch, start/stop the overlay, or tune positions. */
@@ -67,6 +72,8 @@ class MainActivity : ComponentActivity() {
                         LangChip("RU", active = ru) { ru = true; Strings.setRu(ctx, true) }
                     }
                     BasicText("ScreenMate Dash", style = TextStyle(color = Color.White, fontSize = 22.sp))
+
+                    UpdateCard(ctx, s)
 
                     Btn(s.installPatch, Color(0xFF2E5D7D), enabled = !busy) {
                         log = ""; busy = true
@@ -143,5 +150,83 @@ private fun Btn(text: String, bg: Color, enabled: Boolean = true, onClick: () ->
         contentAlignment = Alignment.Center,
     ) {
         BasicText(text, style = TextStyle(color = Color.White, fontSize = 15.sp, textAlign = TextAlign.Center))
+    }
+}
+
+/**
+ * Update status, in OUR app. This exists because the injected settings panel — where the update
+ * button used to live — vanishes together with the patch the moment Screenmate updates itself.
+ * That is exactly when the user most needs to be told a new SM Dash is required, and it is the one
+ * moment the panel cannot tell them. So the facts live here: what we are, what the box runs, and
+ * what this build was made for.
+ */
+@Composable
+private fun UpdateCard(ctx: android.content.Context, s: Strings) {
+    var checking by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf("") }
+    var target by remember { mutableStateOf("") }
+    var stock by remember { mutableStateOf("") }
+    var tick by remember { mutableStateOf(0) }
+
+    LaunchedEffect(tick) {
+        stock = withContext(Dispatchers.IO) { UpdateChecker.stockVersion(ctx) }
+        status = runCatching {
+            Settings.Global.getString(ctx.contentResolver, UpdateChecker.GLOBAL_STATUS)
+        }.getOrNull().orEmpty()
+        target = runCatching {
+            Settings.Global.getString(ctx.contentResolver, UpdateChecker.GLOBAL_LATEST)
+        }.getOrNull().orEmpty()
+    }
+
+    val mine = UpdateChecker.currentVersion(ctx)
+    val need = Patcher.REQUIRED_STOCK_PREFIX
+    val stockOk = stock.isEmpty() || stock.startsWith(need)
+
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF17181C)).padding(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        BasicText(s.updTitle, style = TextStyle(color = Color.White, fontSize = 16.sp))
+        BasicText(
+            "SM Dash $mine" + if (stock.isNotEmpty()) "   ·   Screenmate $stock" else "",
+            style = TextStyle(color = Color(0xFF9AA0A6), fontSize = 13.sp, textAlign = TextAlign.Center),
+        )
+        if (!stockOk) {
+            // The box moved on without us: say so plainly, with both versions.
+            BasicText(
+                s.updStockGonePrefix + need,
+                style = TextStyle(color = Color(0xFFF2564B), fontSize = 13.sp, textAlign = TextAlign.Center),
+            )
+        }
+        when {
+            checking -> BasicText(s.updChecking, style = TextStyle(color = Color(0xFF9AA0A6), fontSize = 13.sp))
+            status == "available" && target.isNotEmpty() ->
+                Btn(s.updAvailPrefix + target, Color(0xFF2E7D5B)) {
+                    ctx.sendBroadcast(
+                        Intent(OverlayService.ACTION_DO_UPDATE).setPackage(ctx.packageName),
+                    )
+                    checking = true
+                }
+            status == "blocked_stock" -> {
+                val needs = runCatching {
+                    Settings.Global.getString(ctx.contentResolver, UpdateChecker.GLOBAL_NEEDS_STOCK)
+                }.getOrNull().orEmpty()
+                BasicText(
+                    s.updNeedStockPrefix + needs,
+                    style = TextStyle(color = Color(0xFFF2564B), fontSize = 13.sp, textAlign = TextAlign.Center),
+                )
+            }
+            status == "current" ->
+                BasicText(s.updCurrent, style = TextStyle(color = Color(0xFF7FE0B4), fontSize = 13.sp))
+        }
+        Btn(s.updCheck, Color(0xFF33343A)) {
+            checking = true
+            CoroutineScope(Dispatchers.IO).launch {
+                runCatching { UpdateChecker.check(ctx, force = true) }
+                withContext(Dispatchers.Main) { checking = false; tick++ }
+            }
+        }
     }
 }

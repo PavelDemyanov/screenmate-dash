@@ -60,6 +60,15 @@ data class Strings(
     val hardReset: String,
     val hardResetting: String,
     val hardResetDone: String,
+    // in-app update card — the ONLY update surface that survives a Screenmate update, because the
+    // injected settings panel disappears together with the patch
+    val updTitle: String,
+    val updCheck: String,
+    val updChecking: String,
+    val updCurrent: String,
+    val updAvailPrefix: String,
+    val updNeedStockPrefix: String,
+    val updStockGonePrefix: String,
 ) {
     companion object {
         fun of(ru: Boolean): Strings = if (ru) RU else EN
@@ -123,6 +132,13 @@ data class Strings(
             hardReset = "⟳  Hard reset (reload dashboard + menu)",
             hardResetting = "Hard reset — unloading & reloading dashboard + menu…",
             hardResetDone = "✓ Reloaded — dashboard + menu restarted from memory",
+            updTitle = "Updates",
+            updCheck = "Check for updates",
+            updChecking = "Checking…",
+            updCurrent = "✓ Up to date",
+            updAvailPrefix = "⤓  Update to v",
+            updNeedStockPrefix = "Needs Screenmate ",
+            updStockGonePrefix = "⚠ Screenmate updated — this build is for ",
         )
 
         val RU = Strings(
@@ -177,6 +193,13 @@ data class Strings(
             hardReset = "⟳  Полный сброс (перезагрузить дашборд + меню)",
             hardResetting = "Полный сброс — выгружаю и перезагружаю дашборд + меню…",
             hardResetDone = "✓ Перезагружено — дашборд и меню перезапущены из памяти",
+            updTitle = "Обновления",
+            updCheck = "Проверить обновления",
+            updChecking = "Проверяю…",
+            updCurrent = "✓ Установлена последняя версия",
+            updAvailPrefix = "⤓  Обновить до v",
+            updNeedStockPrefix = "Требуется Screenmate ",
+            updStockGonePrefix = "⚠ Screenmate обновился — эта сборка под ",
         )
     }
 }
