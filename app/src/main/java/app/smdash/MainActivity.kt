@@ -163,6 +163,7 @@ private fun Btn(text: String, bg: Color, enabled: Boolean = true, onClick: () ->
 @Composable
 private fun UpdateCard(ctx: android.content.Context, s: Strings) {
     var checking by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var target by remember { mutableStateOf("") }
     var stock by remember { mutableStateOf("") }
@@ -202,12 +203,20 @@ private fun UpdateCard(ctx: android.content.Context, s: Strings) {
         }
         when {
             checking -> BasicText(s.updChecking, style = TextStyle(color = Color(0xFF9AA0A6), fontSize = 13.sp))
+            failed -> BasicText(
+                s.updFailed,
+                style = TextStyle(color = Color(0xFFF2564B), fontSize = 13.sp, textAlign = TextAlign.Center),
+            )
             status == "available" && target.isNotEmpty() ->
                 Btn(s.updAvailPrefix + target, Color(0xFF2E7D5B)) {
                     ctx.sendBroadcast(
                         Intent(OverlayService.ACTION_DO_UPDATE).setPackage(ctx.packageName),
                     )
-                    checking = true
+                    // Don't fake a "checking" spinner here: the install runs in the service and
+                    // publishes its own progress (downloading/installing) into the globals. Just
+                    // re-read them — an install that replaces our process never comes back to
+                    // clear a local flag, which is exactly how this used to hang forever.
+                    tick++
                 }
             status == "blocked_stock" -> {
                 val needs = runCatching {
@@ -222,10 +231,25 @@ private fun UpdateCard(ctx: android.content.Context, s: Strings) {
                 BasicText(s.updCurrent, style = TextStyle(color = Color(0xFF7FE0B4), fontSize = 13.sp))
         }
         Btn(s.updCheck, Color(0xFF33343A)) {
-            checking = true
-            CoroutineScope(Dispatchers.IO).launch {
-                runCatching { UpdateChecker.check(ctx, force = true) }
-                withContext(Dispatchers.Main) { checking = false; tick++ }
+            if (!checking) {
+                checking = true
+                failed = false
+                CoroutineScope(Dispatchers.IO).launch {
+                    // check() leaves the verdict in Settings.Global and returns quietly on a network
+                    // hiccup, so "did anything change?" is the only honest success signal.
+                    val before = runCatching {
+                        Settings.Global.getString(ctx.contentResolver, UpdateChecker.GLOBAL_STATUS)
+                    }.getOrNull().orEmpty()
+                    runCatching { UpdateChecker.check(ctx, force = true) }
+                    val after = runCatching {
+                        Settings.Global.getString(ctx.contentResolver, UpdateChecker.GLOBAL_STATUS)
+                    }.getOrNull().orEmpty()
+                    withContext(Dispatchers.Main) {
+                        checking = false
+                        failed = after.isEmpty() && before.isEmpty()
+                        tick++
+                    }
+                }
             }
         }
     }

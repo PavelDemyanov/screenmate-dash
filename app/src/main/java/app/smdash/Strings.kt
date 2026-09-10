@@ -69,6 +69,7 @@ data class Strings(
     val updAvailPrefix: String,
     val updNeedStockPrefix: String,
     val updStockGonePrefix: String,
+    val updFailed: String,
 ) {
     companion object {
         fun of(ru: Boolean): Strings = if (ru) RU else EN
@@ -139,6 +140,7 @@ data class Strings(
             updAvailPrefix = "⤓  Update to v",
             updNeedStockPrefix = "Needs Screenmate ",
             updStockGonePrefix = "⚠ Screenmate updated — this build is for ",
+            updFailed = "Couldn't reach GitHub — check the connection and retry",
         )
 
         val RU = Strings(
@@ -200,6 +202,7 @@ data class Strings(
             updAvailPrefix = "⤓  Обновить до v",
             updNeedStockPrefix = "Требуется Screenmate ",
             updStockGonePrefix = "⚠ Screenmate обновился — эта сборка под ",
+            updFailed = "Не достучался до GitHub — проверь связь и повтори",
         )
     }
 }
