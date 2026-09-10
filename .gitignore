@@ -30,3 +30,9 @@ local.properties
 .DS_Store
 /.idea/
 *.iml
+
+# Private working notes. These carry decompiled-stock internals, the box's addresses and the
+# access setup — the same reasons CLAUDE.md is excluded. The repo is public; the user-facing
+# changelog is the GitHub release notes, not this file.
+CHANGELOG.md
+docs/
