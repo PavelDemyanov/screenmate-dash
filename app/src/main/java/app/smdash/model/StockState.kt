@@ -31,6 +31,13 @@ object DashStore {
      *  the overlay banner can say whether a fix already exists. */
     val updateReady = MutableStateFlow("")
 
+    /** True after [app.smdash.Patcher] found the box's adbd WITHOUT root — the state every box lands in
+     *  after a firmware update switches "Allow rooted debugging" off (2026-11). Nothing can be mounted
+     *  then, so the overlay would sit in the demo loop over the stock dashboard; instead it says how to
+     *  fix it. Cleared by the next apply that gets root, and by the first real STATE (data flowing
+     *  means the patch works, whatever adbd says now). */
+    val noRoot = MutableStateFlow(false)
+
 
     /** ANALOG dial: number alignment. true = align each number's OUTER edge (the digit nearest the
      *  ticks) onto one radius, so the gap to the ticks is even whether the number is 1 or 3 digits

@@ -2,6 +2,7 @@ package app.smdash
 
 import android.content.Context
 import android.util.Log
+import app.smdash.model.DashStore
 import dadb.AdbKeyPair
 import dadb.Dadb
 import java.io.File
@@ -38,14 +39,46 @@ object Patcher {
     // 359fd3ad… = v0.26: stock speed label English "KPH" + panel "Update to vX" button (inert-busy fix).
     // 0a608da0… = v0.30 (1.8-based, panel + Temp style).
     // 26a21ad0… = v0.32: re-based onto stock **1.9** (hooks re-ported; stock moved back to /system_ext).
-    const val PATCHED_MD5 = "44efd3abab92aa62e6e18dde3ade296d"
+    // 44efd3ab… = v0.39–v0.40: stock 1.18.
+    // 98245a50… = v0.41: stock **1.19** — an R8-obfuscated stock; dashboard hooks only (smEmit,
+    // SmHideObserver, 5-tap). The SM DASH panel moved out with Screenmate's settings UI into the
+    // separate co.screenmate.settings app — see the SETTINGS_* patch below.
+    // 97c3b9fa… = v0.41 + smSuppress: the stock's DashboardVisibilitySuppressor (Tesla screen app up /
+    // fullscreen settings) writes Settings.Global smdash_suppress so OUR overlay hides with the stock's;
+    // and SmHideObserver applies the current smdash_hide at registration (the stock re-creates its
+    // dashboard window when suppression lifts, and a fresh observer would otherwise start visible).
+    const val PATCHED_MD5 = "97c3b9fadc3a17b6977348824e296f4a"
 
-    // The patch is built for stock Screenmate v1.9 (its smali hooks are ported onto v1.9's code).
+    // ── Second patch (since stock 1.19): Screenmate's settings UI is its own app, co.screenmate.settings,
+    // updated on its own (an UPDATED_SYSTEM_APP in /data/app). We bind-mount a patched copy whose
+    // "Display" section hosts the SM DASH panel (SmdashPanel in classes2.dex + thumbnails). It is
+    // strictly BEST-EFFORT: the dashboard data never depends on it, so a missing/failed/mismatched
+    // settings patch only logs — apply() still succeeds.
+    private const val SETTINGS_PKG = "co.screenmate.settings"
+    private const val SETTINGS_ASSET = "patched_settings.apk"
+    private const val SETTINGS_STAGED = "$WORK/patched_settings.apk"
+    private const val SETTINGS_BACKUP = "$WORK/orig_settings.apk"
+    // 4c14d926… = co.screenmate.settings 1.1.2 + SmdashPanel.inject(this) at the top of n2/o.a()
+    const val SETTINGS_PATCHED_MD5 = "4c14d92676bfca8cdf8a772a8f9d20af"
+    // EXACT match only, never a prefix: the mount swaps the whole APK, so putting our 1.1.2 build over
+    // a newer settings app would run old code against the new app's data — it could take the user's
+    // Screenmate settings down. On any other version we simply skip the panel.
+    const val REQUIRED_SETTINGS_VERSION = "1.1.2"
+
+    // The patch is built for one stock Screenmate version (its smali hooks are ported onto that code).
     // On a MISMATCHED stock it would mount but silently fail — the data hook never fires, so the
     // overlay sits in the demo animation forever (seen in a real user's diagnostic report). We refuse
     // to mount unless the stock version matches, and tell the user (directionally) to update
     // Screenmate (if older) or wait for a new SM Dash (if newer). Bump this on every re-base.
-    const val REQUIRED_STOCK_PREFIX = "1.18"
+    const val REQUIRED_STOCK_PREFIX = "1.19"
+
+    /** Since 1.19 the stock APK declares `package="co.screenmate.app"` + `<original-package
+     *  co.teslogic.screenmate>`: PackageManager keeps the old package name, but the PROCESS is named
+     *  after the new one. `pidof` therefore has to look for both. */
+    private const val STOCK_PROCS = "co.screenmate.app $STOCK_PKG"
+
+    /** Since 1.19 Screenmate's settings UI is its own app; the stock dashboard has no Activity at all. */
+    private const val SETTINGS_ACTIVITY = "co.screenmate.settings/.ui.activity.MainActivity"
 
     /** guards apply()/revert() against overlapping runs (rapid taps, boot firing mid-tap, …) */
     private val running = AtomicBoolean(false)
@@ -69,15 +102,90 @@ object Patcher {
      * The ACTIVE stock apk path. On v1.8 this is `/data/app/~~<rand>/…-<rand>==/base.apk`, and the
      * random dir changes on EVERY stock update — so it must be resolved live, never hardcoded.
      */
-    private fun Dadb.stockApkPath(): String =
-        sh("pm path $STOCK_PKG 2>/dev/null").lineSequence()
+    private fun Dadb.stockApkPath(): String = apkPath(STOCK_PKG)
+
+    private fun Dadb.apkPath(pkg: String): String {
+        // Since the 2026-11 firmware the stock is installed ONLY for user 10 (user 0 shows
+        // installed=false), and a bare `pm path` asks user 0 → empty. Ask user 10 first, then fall
+        // back to the bare form for older firmware.
+        fun pick(out: String) = out.lineSequence()
             .firstOrNull { it.startsWith("package:") }?.removePrefix("package:")?.trim() ?: ""
+        return pick(sh("pm path --user 10 $pkg 2>/dev/null")).ifEmpty { pick(sh("pm path $pkg 2>/dev/null")) }
+    }
 
     /** The stock Screenmate versionName, e.g. "1.8". PM reports the ORIGINAL scanned manifest even
      *  when our patch is bind-mounted over it, so this is the device's real stock version either way. */
-    private fun Dadb.stockVersion(): String =
-        sh("dumpsys package $STOCK_PKG 2>/dev/null | grep -m1 versionName")
+    private fun Dadb.stockVersion(): String = pkgVersion(STOCK_PKG)
+
+    /** First `versionName` dumpsys prints = the ACTIVE one (an updated system app lists its hidden
+     *  /system copy after it). */
+    private fun Dadb.pkgVersion(pkg: String): String =
+        sh("dumpsys package $pkg 2>/dev/null | grep -m1 versionName")
             .substringAfter("versionName=", "").trim().substringBefore(' ')
+
+    /** Peel every bind layer off [target] (LAZY umount in a loop until the md5 stops changing — a plain
+     *  umount is EBUSY because system_server keeps the apk mmap'd). Same loop the stock mount uses. */
+    private fun Dadb.peelMounts(target: String) {
+        sh(
+            "p=; n=0; while [ \$n -lt 20 ]; do m=\$(md5sum '$target' | cut -d' ' -f1); " +
+                "[ \"\$m\" = \"\$p\" ] && break; p=\$m; " +
+                "umount '$target' 2>/dev/null; umount -l '$target' 2>/dev/null; n=\$((n+1)); done",
+        )
+    }
+
+    /**
+     * Mount the SM DASH panel into Screenmate's own settings app (stock 1.19+). Best-effort by design:
+     * every failure path only logs and returns, the caller's apply() result does not depend on it.
+     * Skips silently on firmware without a separate settings app (≤1.18 hosted the panel in the stock).
+     */
+    private fun applySettingsPatch(ctx: Context, dadb: Dadb, s: Strings, log: (String) -> Unit) {
+        try {
+            val target = dadb.apkPath(SETTINGS_PKG)
+            if (target.isEmpty() || !dadb.sh("[ -e '$target' ] && echo ok").contains("ok")) return
+            if (dadb.md5(target) == SETTINGS_PATCHED_MD5) return // already mounted — no stacking
+            val ver = dadb.pkgVersion(SETTINGS_PKG)
+            if (ver != REQUIRED_SETTINGS_VERSION) {
+                log(s.panelSkipPrefix + REQUIRED_SETTINGS_VERSION + s.panelSkipMid + ver.ifEmpty { "?" } + s.panelSkipSuffix)
+                return
+            }
+            if (dadb.md5(SETTINGS_STAGED) != SETTINGS_PATCHED_MD5) {
+                val tmp = File(ctx.cacheDir, SETTINGS_ASSET)
+                ctx.assets.open(SETTINGS_ASSET).use { i -> tmp.outputStream().use { i.copyTo(it) } }
+                dadb.push(tmp, SETTINGS_STAGED, "644".toInt(8), System.currentTimeMillis())
+                tmp.delete()
+                // /data/app → apk_data_file; copy whatever the live target carries, like the stock path
+                val tctx = dadb.sh("ls -Zd '$target' 2>/dev/null").trim()
+                    .split(Regex("\\s+")).firstOrNull { it.count { c -> c == ':' } >= 3 }
+                    ?: "u:object_r:apk_data_file:s0"
+                dadb.sh("chmod 644 $SETTINGS_STAGED; chcon '$tctx' $SETTINGS_STAGED")
+            }
+            if (dadb.md5(SETTINGS_STAGED) != SETTINGS_PATCHED_MD5) { log(s.panelFailed); return }
+            dadb.sh("[ -f $SETTINGS_BACKUP ] || cp '$target' $SETTINGS_BACKUP")
+            dadb.peelMounts(target)
+            dadb.sh("mount -o bind $SETTINGS_STAGED '$target'")
+            if (dadb.md5(target) != SETTINGS_PATCHED_MD5) {
+                dadb.sh("umount -l '$target' 2>/dev/null")
+                log(s.panelFailed); return
+            }
+            // drop the stale dex: the panel appears the next time the user opens Screenmate settings
+            dadb.sh("am force-stop $SETTINGS_PKG")
+            log(s.panelOk)
+        } catch (e: Exception) {
+            Log.e(TAG, "settings patch failed", e)
+            log(s.panelFailed)
+        }
+    }
+
+    /** Undo [applySettingsPatch] (part of "Remove patch"). Best-effort, like the apply. */
+    private fun Dadb.revertSettingsPatch() {
+        val target = apkPath(SETTINGS_PKG)
+        if (target.isEmpty()) return
+        sh(
+            "n=0; while [ \$n -lt 30 ]; do am force-stop $SETTINGS_PKG; " +
+                "umount '$target' 2>/dev/null; umount -l '$target' 2>/dev/null; " +
+                "m=\$(md5sum '$target' | cut -d' ' -f1); [ \"\$m\" != \"$SETTINGS_PATCHED_MD5\" ] && break; n=\$((n+1)); done",
+        )
+    }
 
     /**
      * Ensure the stock's own "Show Dashboard" setting is ON. Our vehicle-data hook (`smEmit`) lives
@@ -92,6 +200,11 @@ object Patcher {
      * Verified on-device: the flip preserves `u10_a177` + `...:c522,c768` and the stock honours it.
      */
     private fun Dadb.enableStockDashboard() {
+        // 1.19+: the setting moved to Settings.Global `screenmate_dashboard_visible` ("1"/"0"), shared
+        // with the separate co.screenmate.settings app; the stock migrates the old pref there once.
+        sh("v=\$(settings get global screenmate_dashboard_visible 2>/dev/null); " +
+            "[ \"\$v\" = 0 -o \"\$v\" = false ] && settings put global screenmate_dashboard_visible 1")
+        // ≤1.18: SharedPreferences inside the stock's data dir (a no-op where the file is gone).
         val f = "/data/user/10/$STOCK_PKG/shared_prefs/SETTINGS_REPO.xml"
         val needs = sh("[ -f '$f' ] && grep -q 'dashboard-visible\" value=\"false\"' '$f' && echo hit")
         if (!needs.contains("hit")) return // no file, or already visible → nothing to do
@@ -121,7 +234,11 @@ object Patcher {
             log(s.connecting)
             dadb = Dadb.create("127.0.0.1", 5555, keyPair(ctx))
             val id = dadb.sh("id").trim()
-            if (!id.contains("uid=0")) { log(s.noRootPrefix + id); return false }
+            if (!id.contains("uid=0")) {
+                DashStore.noRoot.value = true // the overlay explains it instead of looping the demo
+                log(s.noRootPrefix + id.substringBefore(' ') + s.noRootHint); return false
+            }
+            DashStore.noRoot.value = false
             log(s.rootOk)
 
             // Make sure the stock's own dashboard is enabled so its DashboardView (our data source)
@@ -142,6 +259,9 @@ object Patcher {
             // already patched? re-ensure grants/overlay (idempotent) and stop — NO re-mount (no stacking)
             if (dadb.md5(target) == PATCHED_MD5) {
                 ensureGrantsAndStart(dadb)
+                // the settings app updates on its own schedule, so its mount can be gone even when the
+                // stock's is fine — re-check it on every boot/apply
+                applySettingsPatch(ctx, dadb, s, log)
                 log(s.alreadyActive)
                 return true
             }
@@ -224,11 +344,12 @@ object Patcher {
             // comes up. That fallback DOES show settings — but a working dashboard beats a blank one, and
             // it bounds the worst case to the OLD behaviour rather than a data-less boot.
             Thread.sleep(1500)
-            if (dadb.sh("pidof $STOCK_PKG").trim().isEmpty()) {
-                dadb.sh("am start --user 10 -n $STOCK_PKG/.settings.ui.activity.MainActivity")
+            if (dadb.sh("pidof $STOCK_PROCS").trim().isEmpty()) {
+                dadb.sh("am start --user 10 -n $SETTINGS_ACTIVITY")
             }
 
             ensureGrantsAndStart(dadb)
+            applySettingsPatch(ctx, dadb, s, log)
             log(s.done)
             return true
         } catch (e: Exception) {
@@ -252,6 +373,7 @@ object Patcher {
         val out = linkedMapOf<String, Any?>(
             "expectedMd5" to PATCHED_MD5, "mounted" to null, "match" to null, "targetMd5" to null,
             "stockVersion" to null, "stockPath" to null, "broadcastSeenInLog" to null, "logTail" to null,
+            "settingsVersion" to null, "settingsPanelMounted" to null,
         )
         var dadb: Dadb? = null
         try {
@@ -263,6 +385,10 @@ object Patcher {
                 out["targetMd5"] = md5.ifEmpty { null }
                 out["mounted"] = md5.isNotEmpty()
                 out["match"] = md5 == PATCHED_MD5
+            }
+            dadb.apkPath(SETTINGS_PKG).takeIf { it.isNotEmpty() }?.let { st ->
+                out["settingsVersion"] = dadb.pkgVersion(SETTINGS_PKG).ifEmpty { null }
+                out["settingsPanelMounted"] = dadb.md5(st) == SETTINGS_PATCHED_MD5
             }
             out["stockVersion"] = dadb.sh("dumpsys package $STOCK_PKG 2>/dev/null | grep -m1 versionName")
                 .substringAfter("versionName=", "").trim().ifEmpty { null }
@@ -352,11 +478,12 @@ object Patcher {
                     "m=\$(md5sum '$target' | cut -d' ' -f1); [ \"\$m\" != \"$PATCHED_MD5\" ] && break; n=\$((n+1)); done",
             )
             val left = dadb.sh("md5sum '$target' 2>/dev/null")
+            dadb.revertSettingsPatch()
             // Reload the settings UI so the injected SM DASH panel disappears: its classes4.dex is loaded
             // by both the stock app AND com.android.settings, so force-stop both, then reopen the stock
             // settings (same two-process reload the apply path needs to make the panel appear).
             dadb.sh("am force-stop com.android.settings")
-            dadb.sh("am start --user 10 -n $STOCK_PKG/.settings.ui.activity.MainActivity")
+            dadb.sh("am start --user 10 -n $SETTINGS_ACTIVITY")
             if (left.contains(PATCHED_MD5)) { log(s.layerRemains); return false }
             log(s.revertedPrefix + BACKUP)
             return true
@@ -381,13 +508,13 @@ object Patcher {
             log(s.hardResetting)
             dadb = Dadb.create("127.0.0.1", 5555, keyPair(ctx))
             val id = dadb.sh("id").trim()
-            if (!id.contains("uid=0")) { log(s.noRootPrefix + id); return false }
+            if (!id.contains("uid=0")) { log(s.noRootPrefix + id.substringBefore(' ') + s.noRootHint); return false }
             // unload the stock dashboard, its settings UI, and the settings host from memory
             dadb.sh("am force-stop $STOCK_PKG")
             dadb.sh("am force-stop com.android.settings")
             // re-grant + bring OUR overlay back up (reconciles the hide flag), then reload the stock menu
             ensureGrantsAndStart(dadb)
-            dadb.sh("am start --user 10 -n $STOCK_PKG/.settings.ui.activity.MainActivity")
+            dadb.sh("am start --user 10 -n $SETTINGS_ACTIVITY")
             log(s.hardResetDone)
             return true
         } catch (e: Exception) {

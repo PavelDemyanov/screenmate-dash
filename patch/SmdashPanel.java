@@ -29,6 +29,7 @@ import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -79,7 +80,8 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     static final String A_CHECK_UPDATE = "app.smdash.CHECKUPDATE"; // panel → app: re-check for a release
     static final String A_DO_UPDATE = "app.smdash.DOUPDATE";       // panel → app: install the latest release
     static final String G_UPDATE_LATEST = "smdash_update_latest";  // app writes latest tag (e.g. "0.26")
-    static final String G_UPDATE_STATUS = "smdash_update_status";  // "available"|"current"|"downloading"|"installing"|"error"
+    static final String G_UPDATE_STATUS = "smdash_update_status";  // "available"|"current"|"blocked_stock"|"downloading"|"installing"|"error"
+    static final String G_UPDATE_NEEDS = "smdash_update_needs_stock"; // when blocked: Screenmate version required
 
     static final String[] KEYS = {"stock", "arc", "stack", "stacktemp", "strip", "mini", "analog"};
     static final String[] LABELS = {"Stock", "Arc", "Stack", "Temp", "Strip", "Mini", "Analog"};
@@ -96,6 +98,7 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     static final String TAG_GITHUB = "__smdash_github__"; // link tag, routed through onClick(this)
     static final String TAG_REPORT = "__smdash_report__"; // "send report" button tag
     static final String TAG_UPDATE = "__smdash_update__"; // "update to vX" button tag
+    static final String TAG_NEEDSTOCK = "__smdash_needstock__"; // "needs Screenmate X" — explains how
 
     final Context ctx;
     final float dens;
@@ -545,6 +548,18 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
             updateBtn.setText("⤓ Update to v" + latest);
             updateBtn.setTextColor(ACCENT);
             updateBtn.setTag(TAG_UPDATE);
+        } else if ("blocked_stock".equals(st)) {
+            // A newer SM Dash exists but its patch targets a newer Screenmate than this box runs.
+            // Installing it would leave the dashboard in demo mode (and Android blocks the downgrade
+            // back), so show the blocker instead of an Update button; a tap explains how to fix it.
+            String need = null;
+            try {
+                need = Settings.Global.getString(ctx.getContentResolver(), G_UPDATE_NEEDS);
+            } catch (Throwable ignored) {
+            }
+            updateBtn.setText("Needs Screenmate " + (need == null || need.isEmpty() ? "update" : need));
+            updateBtn.setTextColor(VER_RED);
+            updateBtn.setTag(TAG_NEEDSTOCK);
         } else if ("error".equals(st)) {
             updateBtn.setText("Update failed — retry");
             updateBtn.setTextColor(VER_RED);
@@ -596,6 +611,19 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
         Object tag = v.getTag();
         if (TAG_GITHUB.equals(tag)) { openUrl(RELEASES_URL); return; } // link works regardless of master
         if (TAG_UPDATE.equals(tag)) { startUpdate(); return; }         // one-tap silent self-update
+        if (TAG_NEEDSTOCK.equals(tag)) {                               // gated: say HOW to unblock it
+            String need = null;
+            try {
+                need = Settings.Global.getString(ctx.getContentResolver(), G_UPDATE_NEEDS);
+            } catch (Throwable ignored) {
+            }
+            Toast.makeText(ctx,
+                "A newer SM Dash needs Screenmate " + (need == null || need.isEmpty() ? "" : need + " ")
+                    + "— open the Updater app on your Screenmate box, install the update and reboot. "
+                    + "SM Dash keeps working meanwhile.",
+                Toast.LENGTH_LONG).show();
+            return;
+        }
         if (TAG_REPORT.equals(tag)) { sendReport(); return; }         // report works regardless of master
         if (!master) return; // thumbnails locked while the master toggle is off
         if (!isStyleKey(tag)) return; // ONLY a real style thumbnail selects — never a busy/internal tag

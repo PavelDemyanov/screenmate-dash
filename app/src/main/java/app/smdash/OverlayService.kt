@@ -14,8 +14,10 @@ import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
+import android.database.ContentObserver
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.os.IBinder
 import android.os.SystemClock
 import android.provider.Settings
@@ -121,6 +123,40 @@ private fun BoxScope.StaleBanner(needStock: String, ready: String) {
     }
 }
 
+/**
+ * Covers the tile while the patch cannot be mounted because adbd has no root (a box firmware update
+ * switches "Allow rooted debugging" off). Without it the user would see our demo animation sitting on
+ * top of the stock dashboard and no hint why. Same look as [StaleBanner]; English, like the rest of
+ * the on-car surface.
+ */
+@Composable
+private fun BoxScope.NoRootBanner() {
+    Box(
+        Modifier.matchParentSize().background(Color(0xFF0B0C0E)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier.padding(horizontal = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            BasicText(
+                "NO LIVE DATA",
+                style = TextStyle(color = Color(0xFFF2564B), fontSize = 13.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
+            )
+            BasicText(
+                "A box firmware update turned off root debugging",
+                Modifier.padding(top = 6.dp),
+                style = TextStyle(color = Color(0xFFC8C9CD), fontSize = 11.sp, textAlign = TextAlign.Center),
+            )
+            BasicText(
+                "Developer options → Allow rooted debugging, then SM Dash → Install patch",
+                Modifier.padding(top = 4.dp),
+                style = TextStyle(color = Color(0xFF29E0A6), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center),
+            )
+        }
+    }
+}
+
 /** Foreground service: draws the dashboard as a draggable system overlay over the
  *  Tesla video. Five quick taps hide it (revealing the stock dashboard underneath);
  *  a SHOWOURS broadcast brings it back.
@@ -159,6 +195,19 @@ class OverlayService : Service() {
     private var mockJob: Job? = null
     /** post-forced-start re-assert (boot race guard); cancelled on a new start / switch-to-stock */
     private var reassertJob: Job? = null
+
+    /** The STOCK is suppressing its dashboard right now — its DashboardVisibilitySuppressor has a reason
+     *  (the Tesla screen app `co.screenmate.fpd` is up, or Screenmate settings are fullscreen). Mirrored
+     *  from Settings.Global `smdash_suppress`, which the patched stock writes from that exact decision
+     *  point. While it holds, OUR windows are removed too (that is the stock's behaviour, and the stock
+     *  stops emitting STATE then, so our tile would only freeze). The user's choice ("ours", "master",
+     *  style, position) is untouched, so lifting it restores exactly what was there.
+     *  Written on main; read on the state thread for the stale-flag self-heal → @Volatile. */
+    @Volatile private var suppressed = false
+    @Volatile private var suppressedAt = 0L
+    private val suppressObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) = applySuppress(readSuppress())
+    }
     // realSeen / lastRealAtMs / mockActive live in the companion — ReportCollector reads them.
 
     // turn-signal hold (data layer). isIndicator{Left,Right} arrives as a brief ~20ms pulse once per
@@ -248,6 +297,16 @@ class OverlayService : Service() {
     private val stateReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
             val s = i?.getStringExtra("s") ?: return
+            if (DashStore.noRoot.value) DashStore.noRoot.value = false
+            // A suppressed stock has no dashboard window and emits nothing. If STATE keeps coming well
+            // after suppression began, the flag is stale (Settings.Global survives a reboot; a stock
+            // that died mid-suppression never cleared it) — heal it instead of hiding forever.
+            if (suppressed && SystemClock.elapsedRealtime() - suppressedAt > SUPPRESS_STALE_MS) {
+                scope.launch {
+                    runCatching { Settings.Global.putInt(contentResolver, G_SUPPRESS, 0) }
+                    applySuppress(false)
+                }
+            }
             realSeen = true
             lastRealAtMs = SystemClock.elapsedRealtime()
             mockActive = false
@@ -376,6 +435,13 @@ class OverlayService : Service() {
             },
             Context.RECEIVER_EXPORTED,
         )
+        // Follow the stock's own "hide the dashboard" decision (Tesla screen up / fullscreen settings).
+        // Read before the first reconcile so a service (re)start during suppression stays hidden.
+        suppressed = readSuppress()
+        if (suppressed) suppressedAt = SystemClock.elapsedRealtime()
+        runCatching {
+            contentResolver.registerContentObserver(Settings.Global.getUriFor(G_SUPPRESS), false, suppressObserver)
+        }
         // The high-rate vehicle-data feed gets its own thread so parsing never lands on main.
         val st = HandlerThread("smdash-state").also { it.start() }
         stateThread = st
@@ -499,9 +565,12 @@ class OverlayService : Service() {
                         // surface of ours the user still sees, so it has to carry the news — and it
                         // must NOT keep presenting the frozen last reading as if it were live.
                         val needStock by DashStore.stockMismatch.collectAsState()
+                        val noRoot by DashStore.noRoot.collectAsState()
                         if (needStock.isNotEmpty()) {
                             val ready by DashStore.updateReady.collectAsState()
                             StaleBanner(needStock, ready)
+                        } else if (noRoot) {
+                            NoRootBanner()
                         }
                     }
                     // faint handle pill at the visible (scaled) bottom edge — only while collapsed
@@ -624,6 +693,15 @@ class OverlayService : Service() {
      *  ComposeView measuring wrong / at the pre-AMPM STRIP width until the first [updateViewLayout]
      *  — which is exactly what cycling styles already did via [onStyleChanged]. */
     private fun showOverlay() {
+        if (suppressed) {
+            // The stock is hiding dashboards (Tesla screen up): record the choice and keep the stock
+            // flag in step, but put no window up — [applySuppress] shows ours when it lifts.
+            removeWindows()
+            prefs.edit().putBoolean("ours", true).apply()
+            setStockHidden(true)
+            publishSelection()
+            return
+        }
         if (view == null) {
             // Size from current style + clock hint *before* attach (lp may still be the onCreate
             // snapshot taken before mock/real ampm arrived).
@@ -650,6 +728,30 @@ class OverlayService : Service() {
         prefs.edit().putBoolean("ours", true).apply()
         setStockHidden(true) // ours is up → hide the stock dashboard (re-asserted on every reconcile)
         publishSelection()
+    }
+
+    private fun readSuppress(): Boolean =
+        runCatching { Settings.Global.getInt(contentResolver, G_SUPPRESS, 0) == 1 }.getOrDefault(false)
+
+    /** Enter/leave the stock's suppression (see [suppressed]). Leaving it re-shows ours only if ours is
+     *  what the user had up and the master switch is on — otherwise there is nothing of ours to bring back. */
+    private fun applySuppress(on: Boolean) {
+        if (on == suppressed) return
+        suppressed = on
+        if (on) {
+            suppressedAt = SystemClock.elapsedRealtime()
+            removeWindows()
+        } else if (prefs.getBoolean("master", true) && prefs.getBoolean("ours", true)) {
+            showOverlay()
+        }
+    }
+
+    /** Take our two windows down WITHOUT touching any persisted choice (unlike [hideOverlay]). */
+    private fun removeWindows() {
+        view?.let { runCatching { wm.removeView(it) } }
+        touchView?.let { runCatching { wm.removeView(it) } }
+        view = null
+        touchView = null
     }
 
     private fun hideOverlay() {
@@ -900,6 +1002,7 @@ class OverlayService : Service() {
     override fun onDestroy() {
         runCatching { unregisterReceiver(receiver) }
         runCatching { unregisterReceiver(stateReceiver) }
+        runCatching { contentResolver.unregisterContentObserver(suppressObserver) }
         runCatching { stateThread?.quitSafely() }
         stateThread = null
         runCatching { scope.cancel() }
@@ -936,6 +1039,10 @@ class OverlayService : Service() {
         /** settings-panel master toggle OFF → hide BOTH dashboards (ours removed + stock flag raised) */
         const val ACTION_HIDE_ALL = "app.smdash.HIDEALL"
         const val ACTION_STOCK_VIS = "app.smdash.STOCKVIS"
+        /** Settings.Global flag the patched stock writes: 1 = it is suppressing its dashboard. */
+        const val G_SUPPRESS = "smdash_suppress"
+        /** STATE still arriving this long after suppression began ⇒ the flag is stale. */
+        const val SUPPRESS_STALE_MS = 3000L
         /** set the manual transparency override; float extra "v" in 0..0.8, or <0 to clear (follow stock) */
         const val ACTION_SET_TRANSP = "app.smdash.SETTRANSP"
         const val ACTION_CHECK_UPDATE = "app.smdash.CHECKUPDATE" // panel open → re-check for a release

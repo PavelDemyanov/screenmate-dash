@@ -13,9 +13,11 @@ overlay that replaces the stock dashboard, fed with live vehicle data from the s
 
 ## Requirements
 
-- A **Tesla Screenmate** box running the **stock Screenmate app v1.8**. The patch is built for
-  v1.8 — on other stock versions it won't apply correctly. (Check on the box: stock Settings →
-  Software.)
+- A **Tesla Screenmate** box running the stock Screenmate version this release is built for — each
+  release patches exactly one (v0.41: **Screenmate 1.19**; the full list is in
+  [`compat.json`](compat.json)). The in-app updater only ever offers a release that matches your box.
+- **Root debugging switched on** (see Install, step 1). Box firmware from November 2026 on ships it
+  **off** — and a firmware update may switch it off again; the app tells you when that happens.
 - Install over any previous version of this app — your data and the patch are preserved
   (same signing key).
 
@@ -27,7 +29,7 @@ overlay that replaces the stock dashboard, fed with live vehicle data from the s
 - **Live data** — speed, gear, battery, temperatures, speed limit, autopilot, turn signals,
   high beam, seatbelt — straight from the car.
 - **КМ/Ч** — speed localized to km/h. 12-hour (AM/PM) clocks are supported too.
-- **In-Settings panel** — a *SM DASH* block inside the stock *Display* settings: a master
+- **In-Settings panel** — a *SM DASH* block inside Screenmate's *Display* settings: a master
   toggle, the five style thumbnails, and a **transparency** slider that controls the dashboard
   live. The highlighted style follows the active dashboard in real time.
 - **Adjustable** — drag to reposition, pinch to scale (50–100 %), drag up to collapse into a strip.
@@ -50,6 +52,9 @@ Five quick taps on whichever dashboard is showing advance to the next one.
    - Open the Screenmate's system Settings → **About**, and tap **Build number** 7 times until it
      says *"You are now a developer."*
    - Go to **Developer options** and turn on **USB debugging**.
+   - In the same **Developer options**, turn on **Allow rooted debugging** (it asks three times, with a
+     countdown). The patch is a bind-mount, which needs root; firmware from November 2026 on ships
+     this switch off.
 2. Download **SMDashPatcher.apk** from [Releases](../../releases).
 3. On the Screenmate, allow installation from unknown sources and install the APK.
 4. Open the app → **Install patch**.
@@ -59,13 +64,19 @@ Five quick taps on whichever dashboard is showing advance to the next one.
 
 > **"Error connecting to local adbd 127.0.0.1 on port 5555"?** That means ADB isn't on — go back
 > to step 1 and enable Developer options → USB debugging, then tap *Install patch* again.
+>
+> **"No root via adbd: uid=2000(shell)"** (or the dashboard says *NO LIVE DATA — a box firmware update
+> turned off root debugging*)? Turn on Developer options → **Allow rooted debugging**, then tap
+> *Install patch* again. Update SM Dash only after that: the in-app updater needs root too.
 
 ## Controls
 
 - **5 taps** on the dashboard — cycle through the styles (see above).
 - **Drag up** — collapse into a strip; pull the strip down — expand.
 - **Two fingers** — scale; **drag** — reposition.
-- In the stock *Display* settings — the *SM DASH* block: master toggle, style picker, transparency.
+- In Screenmate's *Display* settings — the *SM DASH* block: master toggle, style picker, transparency,
+  updates and *Send report*. Since Screenmate 1.19 those settings are a separate app; if its version
+  doesn't match this release, the block is skipped and you switch styles in the SM Dash app instead.
 
 ## How it works
 

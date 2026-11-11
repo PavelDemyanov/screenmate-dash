@@ -17,6 +17,9 @@ local.properties
 # The patched stock Screenmate app is Teslogic's closed-source APK. This project only
 # *patches* it at install time on the user's own device; the binary is not shipped here.
 /app/src/main/assets/patched_stock.apk
+# Since Screenmate 1.19 the settings UI is its own closed-source app (co.screenmate.settings); the
+# patched copy that hosts the SM DASH panel is just as proprietary.
+/app/src/main/assets/patched_settings.apk
 
 # ---- Internal working notes ----
 # Contains device/network addresses and stock-app internals — not for the public repo.
