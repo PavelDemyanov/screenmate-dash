@@ -14,7 +14,7 @@ overlay that replaces the stock dashboard, fed with live vehicle data from the s
 ## Requirements
 
 - A **Tesla Screenmate** box running the stock Screenmate version this release is built for — each
-  release patches exactly one (v0.41: **Screenmate 1.19**; the full list is in
+  release patches exactly one (v0.42: **Screenmate 1.20**; the full list is in
   [`compat.json`](compat.json)). The in-app updater only ever offers a release that matches your box.
 - **Root debugging switched on** (see Install, step 1). Box firmware from November 2026 on ships it
   **off** — and a firmware update may switch it off again; the app tells you when that happens.

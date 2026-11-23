@@ -47,7 +47,9 @@ object Patcher {
     // fullscreen settings) writes Settings.Global smdash_suppress so OUR overlay hides with the stock's;
     // and SmHideObserver applies the current smdash_hide at registration (the stock re-creates its
     // dashboard window when suppression lifts, and a fresh observer would otherwise start visible).
-    const val PATCHED_MD5 = "97c3b9fadc3a17b6977348824e296f4a"
+    // 139a092d… = v0.42: stock **1.20** (came with the 2026-11-20 firmware). Same hooks as 1.19; R8 only
+    // shifted the names by one (a new class `g`): OverlayDashboard V→W, gesture listener F→G.
+    const val PATCHED_MD5 = "139a092d708f965043ba438a9eedd6bc"
 
     // ── Second patch (since stock 1.19): Screenmate's settings UI is its own app, co.screenmate.settings,
     // updated on its own (an UPDATED_SYSTEM_APP in /data/app). We bind-mount a patched copy whose
@@ -70,7 +72,7 @@ object Patcher {
     // overlay sits in the demo animation forever (seen in a real user's diagnostic report). We refuse
     // to mount unless the stock version matches, and tell the user (directionally) to update
     // Screenmate (if older) or wait for a new SM Dash (if newer). Bump this on every re-base.
-    const val REQUIRED_STOCK_PREFIX = "1.19"
+    const val REQUIRED_STOCK_PREFIX = "1.20"
 
     /** Since 1.19 the stock APK declares `package="co.screenmate.app"` + `<original-package
      *  co.teslogic.screenmate>`: PackageManager keeps the old package name, but the PROCESS is named
@@ -240,6 +242,12 @@ object Patcher {
             }
             DashStore.noRoot.value = false
             log(s.rootOk)
+
+            // Android 11+ revokes an adb authorization that goes unused for 7 days, and then the box
+            // pops "Allow USB debugging?" at the next boot — our key is only used on boot/apply, so a box
+            // that sleeps rather than reboots for a week asks again. 0 = never expire (the same switch as
+            // Developer options → "Disable adb authorization timeout").
+            dadb.sh("settings put global adb_allowed_connection_time 0")
 
             // Make sure the stock's own dashboard is enabled so its DashboardView (our data source)
             // runs — otherwise the overlay is stuck in the demo animation. Runs on EVERY apply (before
