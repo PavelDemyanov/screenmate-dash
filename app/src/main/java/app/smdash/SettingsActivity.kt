@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +49,7 @@ import app.smdash.ui.StackTempTile
 import app.smdash.ui.StripTile
 import app.smdash.ui.TuneSlider
 import kotlin.math.min
+import kotlinx.coroutines.delay
 
 /**
  * Mock of the stock "Dashboard settings" panel for the emulator (and a manual override on the car):
@@ -115,6 +118,86 @@ class SettingsActivity : ComponentActivity() {
                         StyleCard(s.styleStrip, DashStyle.STRIP, style == DashStyle.STRIP, live, Modifier.weight(1f)) { pickStyle(DashStyle.STRIP) }
                         StyleCard(s.styleMini, DashStyle.MINI, style == DashStyle.MINI, live, Modifier.weight(1f)) { pickStyle(DashStyle.MINI) }
                         StyleCard(s.styleAnalog, DashStyle.ANALOG, style == DashStyle.ANALOG, live, Modifier.weight(1f)) { pickStyle(DashStyle.ANALOG) }
+                    }
+
+                    // ---- full-screen turn signals ----
+                    val edgeOn by DashStore.edgeOn.collectAsState()
+                    val edgeW by DashStore.edgeWidthPct.collectAsState()
+                    val edgeT by DashStore.edgeTranspPct.collectAsState()
+                    val demoUntil by DashStore.edgeDemoUntil.collectAsState()
+                    // "running" is time-based: flip it back when the demo runs out
+                    var demoRunning by remember { mutableStateOf(false) }
+                    LaunchedEffect(demoUntil) {
+                        val left = demoUntil - android.os.SystemClock.uptimeMillis()
+                        demoRunning = left > 0
+                        if (left > 0) { delay(left); demoRunning = false }
+                    }
+                    // leaving this screen ends the demo, like closing the Screenmate settings does
+                    DisposableEffect(Unit) { onDispose { DashStore.stopEdgeDemo() } }
+                    fun pushEdge() {
+                        // same process as the overlay: it persists + mirrors + redraws; persist here too
+                        // in case it isn't running
+                        prefs.edit().putBoolean("edge_on", DashStore.edgeOn.value)
+                            .putInt("edge_w", DashStore.edgeWidthPct.value)
+                            .putInt("edge_t", DashStore.edgeTranspPct.value).apply()
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                      Row(
+                        Modifier.weight(1f).clickable {
+                            DashStore.edgeOn.value = !edgeOn
+                            pushEdge()
+                            if (!edgeOn) DashStore.startEdgeDemo() else DashStore.stopEdgeDemo() // on → show it
+                        },
+                        verticalAlignment = Alignment.CenterVertically,
+                      ) {
+                        Box(
+                            Modifier.size(22.dp).clip(RoundedCornerShape(5.dp))
+                                .background(if (edgeOn) Color(0xFF2E5D7D) else Color(0xFF24262B))
+                                .border(1.dp, Color(0xFF4A4D55), RoundedCornerShape(5.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (edgeOn) BasicText("✓", style = TextStyle(color = Color.White, fontSize = 14.sp))
+                        }
+                        BasicText(
+                            s.edgeTitle,
+                            Modifier.padding(start = 12.dp),
+                            style = TextStyle(color = Color.White, fontSize = 18.sp),
+                        )
+                      }
+                        // Demo: right and left bands flash in turn, so the sliders can be tuned with no
+                        // indicator on; pressing again stops it
+                        if (edgeOn) Pill(
+                            if (demoRunning) s.edgeDemoStop else s.edgeDemo,
+                            if (demoRunning) Color(0xFF2E5D7D) else Color(0xFF33343A),
+                            Modifier.width(130.dp),
+                        ) { if (demoRunning) DashStore.stopEdgeDemo() else DashStore.startEdgeDemo() }
+                    }
+                    BasicText(
+                        s.edgeHint,
+                        Modifier.padding(top = 4.dp, bottom = 6.dp),
+                        style = TextStyle(color = Color(0xFF8A9099), fontSize = 12.sp),
+                    )
+                    if (edgeOn) {
+                        // side by side — half the height of two full-width sliders
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                            Box(Modifier.weight(1f)) {
+                                TuneSlider(s.edgeWidth, edgeW.toFloat(), DashStore.EDGE_WIDTH_MIN.toFloat(), DashStore.EDGE_WIDTH_MAX.toFloat()) {
+                                    DashStore.edgeWidthPct.value = it.toInt().coerceIn(DashStore.EDGE_WIDTH_MIN, DashStore.EDGE_WIDTH_MAX)
+                                    pushEdge()
+                                    DashStore.extendEdgeDemo()
+                                }
+                            }
+                            Box(Modifier.weight(1f)) {
+                                TuneSlider(s.edgeTransp, edgeT.toFloat(), 0f, 100f) {
+                                    DashStore.edgeTranspPct.value = it.toInt().coerceIn(0, 100)
+                                    pushEdge()
+                                    DashStore.extendEdgeDemo()
+                                }
+                            }
+                        }
                     }
 
                     // ---- transparency ----

@@ -9,6 +9,7 @@ import android.database.ContentObserver;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -79,6 +80,15 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     static final String G_REPORT_STATUS = "smdash_report_status"; // "sending" | "ok" | "err"
     static final String A_CHECK_UPDATE = "app.smdash.CHECKUPDATE"; // panel → app: re-check for a release
     static final String A_DO_UPDATE = "app.smdash.DOUPDATE";       // panel → app: install the latest release
+    // full-screen turn signals: the panel sends A_EDGE, our app persists + mirrors into these globals
+    static final String A_EDGE = "app.smdash.SETEDGE";
+    static final String G_EDGE = "smdash_edge";
+    static final String G_EDGE_W = "smdash_edge_w";
+    static final String G_EDGE_T = "smdash_edge_t";
+    static final int EDGE_W_MIN = 3, EDGE_W_MAX = 40, EDGE_W_DEF = 12, EDGE_T_DEF = 20;
+    // demo lengths mirror the app's DashStore.EDGE_DEMO_MS / EDGE_DEMO_TOUCH_MS (it owns the real timer)
+    static final long EDGE_DEMO_MS = 30_000L, EDGE_DEMO_TOUCH_MS = 10_000L;
+    static final String TAG_EDGE_DEMO = "__smdash_edge_demo__";
     static final String G_UPDATE_LATEST = "smdash_update_latest";  // app writes latest tag (e.g. "0.26")
     static final String G_UPDATE_STATUS = "smdash_update_status";  // "available"|"current"|"blocked_stock"|"downloading"|"installing"|"error"
     static final String G_UPDATE_NEEDS = "smdash_update_needs_stock"; // when blocked: Screenmate version required
@@ -109,6 +119,13 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     LinearLayout thumbRow;
     TextView transpPctLabel;
     TextView reportStatus; // shows "Sending…" / "✓ Sent: #ID" / "Send failed"
+    Switch edgeSw;
+    LinearLayout edgeSliders;
+    TextView edgeWLabel, edgeTLabel;
+    TextView edgeDemoBtn;
+    long edgeDemoUntil; // our local copy of the demo end (uptimeMillis), only to label the button
+    final Handler edgeHandler = new Handler(Looper.getMainLooper());
+    final Runnable edgeDemoEnd = new EdgeDemoEnd(this);
     TextView updateBtn;    // header right control: "Update on GitHub" / "Update to vX" / "Updating…"
     GlobalObserver observer;
     boolean observerReg;
@@ -302,6 +319,8 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
         sblp.topMargin = dp(2);
         sb.setLayoutParams(sblp);
         block.addView(sb);
+
+        buildEdgeControls(block);
 
         // --- diagnostic report: "Send report" button + a status line ---
         // The panel can't write Settings.Global (no WRITE_SECURE_SETTINGS), so tapping just broadcasts
@@ -595,6 +614,230 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
         }
     }
 
+    /** Full-screen turn signals: a band along the screen edge that blinks with the indicator, in
+     *  addition to the bar on the dashboard tile. Switch + band width + band transparency; every change
+     *  goes to our app as A_EDGE (it owns the values), sliders also ask it for a short preview of both
+     *  bands so the user sees what they're changing with no indicator on. */
+    void buildEdgeControls(LinearLayout block) {
+        ContentResolver cr = ctx.getContentResolver();
+        boolean on = Settings.Global.getInt(cr, G_EDGE, 0) == 1;
+        int w = Math.max(EDGE_W_MIN, Math.min(EDGE_W_MAX, Settings.Global.getInt(cr, G_EDGE_W, EDGE_W_DEF)));
+        int t = Math.max(0, Math.min(100, Settings.Global.getInt(cr, G_EDGE_T, EDGE_T_DEF)));
+
+        LinearLayout erow = new LinearLayout(ctx);
+        erow.setOrientation(LinearLayout.HORIZONTAL);
+        erow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams erp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        erp.topMargin = dp(16);
+        erow.setLayoutParams(erp);
+        TextView elabel = label("Full-screen turn signals", 15, INK, false, 0f);
+        elabel.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        erow.addView(elabel);
+
+        // Demo: the right and left bands flash in turn, so the sliders can be tuned with no indicator on
+        edgeDemoBtn = label("Demo", 13, INK, false, 0f);
+        edgeDemoBtn.setTypeface(Typeface.DEFAULT_BOLD);
+        edgeDemoBtn.setPadding(dp(14), dp(7), dp(14), dp(7));
+        GradientDrawable dbg = new GradientDrawable();
+        dbg.setColor(CARD_BG);
+        dbg.setCornerRadius(dp(10));
+        dbg.setStroke(dp(1), CARD_EDGE);
+        edgeDemoBtn.setBackground(dbg);
+        edgeDemoBtn.setTag(TAG_EDGE_DEMO);
+        edgeDemoBtn.setOnClickListener(this);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dlp.rightMargin = dp(14);
+        edgeDemoBtn.setLayoutParams(dlp);
+        erow.addView(edgeDemoBtn);
+        edgeSw = new Switch(ctx);
+        edgeSw.setChecked(on);
+        int[][] sw = {{android.R.attr.state_checked}, {}};
+        edgeSw.setThumbTintList(new ColorStateList(sw, new int[]{STOCK_BLUE, 0xFFECEFF1}));
+        edgeSw.setTrackTintList(new ColorStateList(sw, new int[]{STOCK_BLUE, 0xFF565A60}));
+        edgeSw.setOnCheckedChangeListener(new EdgeSwitchListener(this));
+        erow.addView(edgeSw);
+        block.addView(erow);
+
+        TextView hint = label("The screen edge glows with the indicator, besides the bar on the dashboard.", 12, SUB, false, 0f);
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hlp.topMargin = dp(2);
+        hint.setLayoutParams(hlp);
+        block.addView(hint);
+
+        // the two sliders side by side (width | transparency) — half the height of two stacked ones
+        edgeSliders = new LinearLayout(ctx);
+        edgeSliders.setOrientation(LinearLayout.HORIZONTAL);
+        edgeWLabel = label(w + "%", 13, INK, false, 0f);
+        edgeTLabel = label(t + "%", 13, INK, false, 0f);
+        LinearLayout wcol = sliderColumn("Band width", edgeWLabel, edgeSeek(EDGE_W_MIN, EDGE_W_MAX, w, true));
+        LinearLayout tcol = sliderColumn("Band transparency", edgeTLabel, edgeSeek(0, 100, t, false));
+        LinearLayout.LayoutParams wcp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        wcp.rightMargin = dp(12);
+        edgeSliders.addView(wcol, wcp);
+        LinearLayout.LayoutParams tcp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        tcp.leftMargin = dp(12);
+        edgeSliders.addView(tcol, tcp);
+        block.addView(edgeSliders);
+        applyEdgeDim();
+    }
+
+    LinearLayout sliderColumn(String title, TextView value, SeekBar seek) {
+        LinearLayout col = new LinearLayout(ctx);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.addView(sliderRow(title, value));
+        col.addView(seek);
+        return col;
+    }
+
+    LinearLayout sliderRow(String title, TextView value) {
+        LinearLayout row = new LinearLayout(ctx);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.topMargin = dp(10);
+        row.setLayoutParams(rp);
+        row.addView(label(title, 13, SUB, false, 0f));
+        View sp = new View(ctx);
+        row.addView(sp, new LinearLayout.LayoutParams(0, dp(1), 1f));
+        row.addView(value);
+        return row;
+    }
+
+    SeekBar edgeSeek(int min, int max, int value, boolean width) {
+        SeekBar s = new SeekBar(ctx);
+        s.setMin(min);
+        s.setMax(max);
+        s.setProgress(value);
+        s.setThumbTintList(ColorStateList.valueOf(STOCK_BLUE));
+        s.setProgressTintList(ColorStateList.valueOf(STOCK_BLUE));
+        s.setOnSeekBarChangeListener(new EdgeSeekListener(this, width));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(2);
+        s.setLayoutParams(lp);
+        return s;
+    }
+
+    void syncEdge() {
+        if (edgeSw == null) return;
+        boolean on;
+        try {
+            on = Settings.Global.getInt(ctx.getContentResolver(), G_EDGE, 0) == 1;
+        } catch (Throwable e) {
+            return;
+        }
+        if (edgeSw.isChecked() != on) {
+            syncing = true;
+            edgeSw.setChecked(on);
+            syncing = false;
+            applyEdgeDim();
+        }
+    }
+
+    /** Sliders are only meaningful (and only enabled) while the option is on. */
+    void applyEdgeDim() {
+        if (edgeSliders == null || edgeSw == null) return;
+        boolean on = edgeSw.isChecked();
+        edgeSliders.setAlpha(on ? 1f : 0.35f);
+        setEnabledDeep(edgeSliders, on);
+        if (edgeDemoBtn != null) {
+            edgeDemoBtn.setAlpha(on ? 1f : 0.35f);
+            edgeDemoBtn.setEnabled(on);
+        }
+    }
+
+    // Named classes, not lambdas/anonymous classes: the d8 (8.2.2) in our build chokes on the
+    // anonymous-class attributes the current javac emits ("Cannot invoke String.length()").
+    static final class EdgeSwitchListener implements CompoundButton.OnCheckedChangeListener {
+        final SmdashPanel p;
+        EdgeSwitchListener(SmdashPanel p) { this.p = p; }
+        @Override
+        public void onCheckedChanged(CompoundButton b, boolean checked) {
+            if (p.syncing) return;
+            p.applyEdgeDim();
+            p.sendEdge(checked, null, null, false);
+            p.demo(checked ? "start" : "stop"); // switching on shows the demo right away
+        }
+    }
+
+    static final class EdgeSeekListener implements SeekBar.OnSeekBarChangeListener {
+        final SmdashPanel p;
+        final boolean width;
+        EdgeSeekListener(SmdashPanel p, boolean width) { this.p = p; this.width = width; }
+        @Override
+        public void onProgressChanged(SeekBar b, int v, boolean fromUser) {
+            TextView l = width ? p.edgeWLabel : p.edgeTLabel;
+            if (l != null) l.setText(v + "%");
+            if (fromUser) {
+                p.sendEdge(null, width ? v : null, width ? null : v, false);
+                p.demo("extend"); // keep the bands flashing while the user tunes them
+            }
+        }
+        @Override
+        public void onStartTrackingTouch(SeekBar b) { }
+        @Override
+        public void onStopTrackingTouch(SeekBar b) { }
+    }
+
+    static void setEnabledDeep(View v, boolean on) {
+        v.setEnabled(on);
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) setEnabledDeep(g.getChildAt(i), on);
+        }
+    }
+
+    /** Demo button / slider: "start" restarts a 30 s demo, "extend" keeps it going ≥10 s, "stop" ends it.
+     *  The app owns the real timer; we only keep a local end time to label the button. */
+    void demo(String what) {
+        long now = SystemClock.uptimeMillis();
+        if ("start".equals(what)) edgeDemoUntil = now + EDGE_DEMO_MS;
+        else if ("extend".equals(what)) edgeDemoUntil = Math.max(edgeDemoUntil, now + EDGE_DEMO_TOUCH_MS);
+        else edgeDemoUntil = 0;
+        edgeHandler.removeCallbacks(edgeDemoEnd);
+        if (edgeDemoUntil > now) edgeHandler.postDelayed(edgeDemoEnd, edgeDemoUntil - now);
+        syncDemoBtn();
+        try {
+            Intent i = new Intent(A_EDGE).setPackage(PKG);
+            i.putExtra("demo", what);
+            ctx.sendBroadcast(i);
+        } catch (Throwable e) {
+            Log.e("smdash", "demo broadcast failed", e);
+        }
+    }
+
+    void syncDemoBtn() {
+        if (edgeDemoBtn == null) return;
+        boolean running = edgeDemoUntil > SystemClock.uptimeMillis();
+        edgeDemoBtn.setText(running ? "Stop" : "Demo");
+        edgeDemoBtn.setTextColor(running ? STOCK_BLUE : INK);
+    }
+
+    static final class EdgeDemoEnd implements Runnable {
+        final SmdashPanel p;
+        EdgeDemoEnd(SmdashPanel p) { this.p = p; }
+        @Override
+        public void run() { p.syncDemoBtn(); }
+    }
+
+    /** Push edge settings to our app; null = leave that value as it is. */
+    void sendEdge(Boolean on, Integer w, Integer t, boolean preview) {
+        try {
+            Intent i = new Intent(A_EDGE).setPackage(PKG);
+            if (on != null) i.putExtra("on", (boolean) on);
+            if (w != null) i.putExtra("w", (int) w);
+            if (t != null) i.putExtra("t", (int) t);
+            if (preview) i.putExtra("demo", "extend");
+            ctx.sendBroadcast(i);
+        } catch (Throwable e) {
+            Log.e("smdash", "sendEdge failed", e);
+        }
+    }
+
     void applyMasterDim() {
         if (thumbRow == null) return;
         thumbRow.setAlpha(master ? 1f : 0.35f);
@@ -625,6 +868,11 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
             return;
         }
         if (TAG_REPORT.equals(tag)) { sendReport(); return; }         // report works regardless of master
+        if (TAG_EDGE_DEMO.equals(tag)) {                               // Demo / Stop toggle
+            if (edgeSw == null || !edgeSw.isChecked()) return;
+            demo(edgeDemoUntil > SystemClock.uptimeMillis() ? "stop" : "start");
+            return;
+        }
         if (!master) return; // thumbnails locked while the master toggle is off
         if (!isStyleKey(tag)) return; // ONLY a real style thumbnail selects — never a busy/internal tag
         selected = (String) tag;
@@ -651,6 +899,7 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
     @Override
     public void onViewDetachedFromWindow(View v) {
         unregisterObserver();
+        if (edgeDemoUntil > SystemClock.uptimeMillis()) demo("stop"); // settings closed → no more demo
     }
 
     void registerObserver() {
@@ -663,6 +912,7 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
             cr.registerContentObserver(Settings.Global.getUriFor(G_REPORT_STATUS), false, observer);
             cr.registerContentObserver(Settings.Global.getUriFor(G_UPDATE_STATUS), false, observer);
             cr.registerContentObserver(Settings.Global.getUriFor(G_UPDATE_LATEST), false, observer);
+            cr.registerContentObserver(Settings.Global.getUriFor(G_EDGE), false, observer);
             observerReg = true;
             syncFromGlobal(); // pick up anything that changed while we were detached
         } catch (Throwable t) {
@@ -689,6 +939,7 @@ public final class SmdashPanel implements View.OnClickListener, CompoundButton.O
             syncing = false;
         }
         applyMasterDim();
+        syncEdge();
         syncReport();
         syncUpdate();
     }

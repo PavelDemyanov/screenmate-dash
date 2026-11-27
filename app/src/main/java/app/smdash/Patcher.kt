@@ -65,7 +65,9 @@ object Patcher {
     // 4c14d926… = settings 1.1.2 build 1800000003 + SmdashPanel.inject(this) at the top of n2/o.a() (v0.41–v0.42)
     // 4ddd042b… = settings 1.1.2 build 1800000004 (rebuilt with Hilt; the Display section is now
     //             section/display/B) + SmdashPanel.inject(this) at the top of B.e() (v0.43)
-    const val SETTINGS_PATCHED_MD5 = "4ddd042b7912c59c2c5c7ccb4e3e4804"
+    // 1fccd727… = the same build + the panel's "Full-screen turn signals" switch and band sliders
+    // fc379f2e… = + the Demo button (bands flash right/left in turn) and the two sliders side by side (v0.44)
+    const val SETTINGS_PATCHED_MD5 = "fc379f2e7cfe3019c7ca433aed9b4d20"
     // EXACT match only, never a prefix: the mount swaps the whole APK, so putting our build over a
     // different settings app would run old code against the new app's data — it could take the user's
     // Screenmate settings down. On any other version we skip the panel.

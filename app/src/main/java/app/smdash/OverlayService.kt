@@ -68,6 +68,10 @@ import app.smdash.model.DashStyle
 import app.smdash.model.DashboardState
 import app.smdash.model.mockDashboardFlow
 import app.smdash.model.parseStockState
+import android.view.View
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
+import app.smdash.ui.EdgeGlow
 import app.smdash.ui.DashboardTile
 import app.smdash.ui.AnalogTile
 import app.smdash.ui.MiniTile
@@ -205,6 +209,10 @@ class OverlayService : Service() {
      *  Written on main; read on the state thread for the stale-flag self-heal → @Volatile. */
     @Volatile private var suppressed = false
     @Volatile private var suppressedAt = 0L
+
+    /** Full-screen turn-signal bands: [0] = left screen edge, [1] = right. Created as soon as the option
+     *  is on (GONE until a side signals, so an idle band never obscures touches), removed when it is off. */
+    private val edgeViews = arrayOfNulls<ComposeView>(2)
     private val suppressObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
         override fun onChange(selfChange: Boolean) = applySuppress(readSuppress())
     }
@@ -244,6 +252,7 @@ class OverlayService : Service() {
             turnLeft = lastState.turnLeft || heldLeft,
             turnRight = lastState.turnRight || heldRight,
         )
+        syncEdges()
     }
 
     /**
@@ -339,6 +348,20 @@ class OverlayService : Service() {
                 // master toggle OFF in the settings panel → hide BOTH dashboards
                 ACTION_HIDE_ALL -> hideBoth()
                 ACTION_SET_TRANSP -> setTranspOverride(i.getFloatExtra("v", -1f))
+                // SM DASH panel: full-screen turn signals (each extra optional). "demo" = "start" (the
+                // Demo button) / "extend" (a slider moved) / "stop" (button again, or settings closed);
+                // v0.44's panel sent "preview"=true — treated as "extend"
+                ACTION_SET_EDGE -> {
+                    if (i.hasExtra("on")) DashStore.edgeOn.value = i.getBooleanExtra("on", false)
+                    if (i.hasExtra("w")) DashStore.edgeWidthPct.value =
+                        i.getIntExtra("w", DashStore.EDGE_WIDTH_DEFAULT).coerceIn(DashStore.EDGE_WIDTH_MIN, DashStore.EDGE_WIDTH_MAX)
+                    if (i.hasExtra("t")) DashStore.edgeTranspPct.value = i.getIntExtra("t", DashStore.EDGE_TRANSP_DEFAULT).coerceIn(0, 100)
+                    when (i.getStringExtra("demo") ?: if (i.getBooleanExtra("preview", false)) "extend" else null) {
+                        "start" -> DashStore.startEdgeDemo()
+                        "extend" -> DashStore.extendEdgeDemo()
+                        "stop" -> DashStore.stopEdgeDemo()
+                    }
+                }
                 ACTION_SEND_REPORT -> handleSendReport(i.getStringExtra("comment"))
                 // panel opened → re-check for a newer release (throttled inside UpdateChecker)
                 ACTION_CHECK_UPDATE -> scope.launch(Dispatchers.IO) {
@@ -431,6 +454,7 @@ class OverlayService : Service() {
             IntentFilter().apply {
                 addAction(ACTION_SHOW_OURS); addAction(ACTION_SHOW_STOCK)
                 addAction(ACTION_HIDE_ALL); addAction(ACTION_SET_TRANSP); addAction(ACTION_SEND_REPORT)
+                addAction(ACTION_SET_EDGE)
                 addAction(ACTION_CHECK_UPDATE); addAction(ACTION_DO_UPDATE)
             },
             Context.RECEIVER_EXPORTED,
@@ -492,6 +516,48 @@ class OverlayService : Service() {
         if (collapsed) {
             lp.x = prefs.getInt("sx", lp.x)
             dashAlpha.value = 0f
+        }
+
+        // Full-screen turn signals: load the persisted choice, then let one collector own persistence,
+        // the Settings.Global mirror (read by the SM DASH panel) and the windows. Running it here, in
+        // onCreate, also creates the band windows BEFORE showOverlay() adds the dashboard's, so the
+        // bands sit underneath our tile.
+        DashStore.edgeOn.value = prefs.getBoolean("edge_on", false)
+        DashStore.edgeWidthPct.value = prefs.getInt("edge_w", DashStore.EDGE_WIDTH_DEFAULT)
+            .coerceIn(DashStore.EDGE_WIDTH_MIN, DashStore.EDGE_WIDTH_MAX)
+        DashStore.edgeTranspPct.value = prefs.getInt("edge_t", DashStore.EDGE_TRANSP_DEFAULT).coerceIn(0, 100)
+        applyEdgeConfig()
+        scope.launch {
+            combine(DashStore.edgeOn, DashStore.edgeWidthPct, DashStore.edgeTranspPct) { on, w, t -> Triple(on, w, t) }
+                .collect { (on, w, t) ->
+                    prefs.edit().putBoolean("edge_on", on).putInt("edge_w", w).putInt("edge_t", t).apply()
+                    runCatching {
+                        Settings.Global.putInt(contentResolver, G_EDGE, if (on) 1 else 0)
+                        Settings.Global.putInt(contentResolver, G_EDGE_W, w)
+                        Settings.Global.putInt(contentResolver, G_EDGE_T, t)
+                    }
+                    applyEdgeConfig()
+                }
+        }
+        // The demo keeps both band windows up until it ends; a newer start/extend restarts the timer.
+        // Overlay windows stack in the order they were added, and the Screenmate settings sheet — where
+        // the user runs the demo — is added after our bands, so it would hide the right one. Raise the
+        // bands over it while the demo runs, and put our tile back on top when it ends.
+        scope.launch {
+            DashStore.edgeDemoUntil.collectLatest { until ->
+                if (DashStore.edgeDemoRunning() && DashStore.edgeOn.value && !edgesRaised) {
+                    raiseEdges()
+                    edgesRaised = true
+                }
+                syncEdges()
+                val left = until - SystemClock.uptimeMillis()
+                if (left > 0) delay(left)
+                if (edgesRaised) {
+                    edgesRaised = false
+                    if (view != null && !suppressed) { removeWindows(); showOverlay() }
+                }
+                syncEdges()
+            }
         }
 
         // demo data until the stock hook sends real state (so the emulator shows a live tile);
@@ -744,6 +810,99 @@ class OverlayService : Service() {
         } else if (prefs.getBoolean("master", true) && prefs.getBoolean("ours", true)) {
             showOverlay()
         }
+        syncEdges()
+    }
+
+    private fun edgeWidthPx(): Int =
+        (resources.displayMetrics.widthPixels * DashStore.edgeWidthPct.value / 100f).roundToInt().coerceAtLeast(1)
+
+    /** One band window: exactly the band (full height, user width) at the left or right screen edge.
+     *  Pass-through like our dashboard (NOT_TOUCHABLE ⇒ Android caps it at 80 % opacity). */
+    private fun edgeLp(left: Boolean) = WindowManager.LayoutParams(
+        edgeWidthPx(), WindowManager.LayoutParams.MATCH_PARENT,
+        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+        PixelFormat.TRANSLUCENT,
+    ).apply { gravity = Gravity.TOP or (if (left) Gravity.START else Gravity.END) }
+
+    private fun buildEdgeView(left: Boolean): ComposeView = ComposeView(this).apply {
+        setViewTreeLifecycleOwner(owner)
+        setViewTreeViewModelStoreOwner(owner)
+        setViewTreeSavedStateRegistryOwner(owner)
+        setContent { EdgeGlow(left) }
+        visibility = View.GONE
+    }
+
+    /** Option on → make sure both band windows exist at the current width; off → remove them. */
+    private fun applyEdgeConfig() {
+        if (!DashStore.edgeOn.value) {
+            removeEdges()
+            return
+        }
+        var created = false
+        for (i in 0..1) {
+            val left = i == 0
+            val v = edgeViews[i]
+            if (v == null) {
+                val nv = buildEdgeView(left)
+                if (runCatching { wm.addView(nv, edgeLp(left)) }.isSuccess) {
+                    edgeViews[i] = nv
+                    created = true
+                } else {
+                    Log.e(TAG, "edge window add failed")
+                }
+            } else {
+                runCatching { wm.updateViewLayout(v, edgeLp(left)) }
+            }
+        }
+        // windows stack in add order: bands created while our tile is up would sit ON it — re-add the
+        // tile's windows so it stays on top (only when the option is switched on at runtime)
+        if (created && view != null && !suppressed) {
+            removeWindows()
+            showOverlay()
+        }
+        syncEdges()
+    }
+
+    /** Show a band only while its side signals with REAL data (never the demo loop), the master switch
+     *  is on and the stock isn't suppressing dashboards (Tesla screen up) — or during a settings preview. */
+    private fun syncEdges() {
+        if (edgeViews[0] == null && edgeViews[1] == null) return
+        val on = DashStore.edgeOn.value
+        val preview = on && DashStore.edgeDemoRunning() // the demo needs both windows up; EdgeGlow picks the side
+        val live = on && !suppressed && !mockActive && prefs.getBoolean("master", true)
+        val st = DashStore.flow.value
+        val want = booleanArrayOf(preview || (live && st.turnLeft), preview || (live && st.turnRight))
+        for (i in 0..1) {
+            val v = edgeViews[i] ?: continue
+            val vis = if (want[i]) View.VISIBLE else View.GONE
+            if (v.visibility != vis) v.visibility = vis
+        }
+    }
+
+    /** true while the band windows sit above everything for the demo (see the demo collector) */
+    private var edgesRaised = false
+
+    /** Re-add both band windows so they stack on top of every overlay added after them. */
+    private fun raiseEdges() {
+        for (i in 0..1) {
+            val v = edgeViews[i] ?: continue
+            runCatching { wm.removeView(v) }
+            if (runCatching { wm.addView(v, edgeLp(i == 0)) }.isFailure) {
+                Log.e(TAG, "edge window re-add failed")
+                edgeViews[i] = null
+            }
+        }
+    }
+
+    private fun removeEdges() {
+        for (i in 0..1) {
+            edgeViews[i]?.let { runCatching { wm.removeView(it) } }
+            edgeViews[i] = null
+        }
     }
 
     /** Take our two windows down WITHOUT touching any persisted choice (unlike [hideOverlay]). */
@@ -778,6 +937,7 @@ class OverlayService : Service() {
         prefs.edit().putBoolean("master", false).apply()
         setStockHidden(true) // hide the stock too → the screen shows neither dashboard
         publishSelection()
+        syncEdges()
     }
 
     /** Mirror the current selection into Settings.Global so the STOCK settings panel (which can only
@@ -1003,6 +1163,7 @@ class OverlayService : Service() {
         runCatching { unregisterReceiver(receiver) }
         runCatching { unregisterReceiver(stateReceiver) }
         runCatching { contentResolver.unregisterContentObserver(suppressObserver) }
+        removeEdges()
         runCatching { stateThread?.quitSafely() }
         stateThread = null
         runCatching { scope.cancel() }
@@ -1039,6 +1200,14 @@ class OverlayService : Service() {
         /** settings-panel master toggle OFF → hide BOTH dashboards (ours removed + stock flag raised) */
         const val ACTION_HIDE_ALL = "app.smdash.HIDEALL"
         const val ACTION_STOCK_VIS = "app.smdash.STOCKVIS"
+        /** SM DASH panel → us: full-screen turn signals. Extras (each optional): "on" Boolean,
+         *  "w" Int (band width, % of screen width), "t" Int (transparency %), "demo" String
+         *  ("start" / "extend" / "stop"). */
+        const val ACTION_SET_EDGE = "app.smdash.SETEDGE"
+        /** Settings.Global mirror of the edge settings, read by the panel (it can't query our prefs). */
+        const val G_EDGE = "smdash_edge"
+        const val G_EDGE_W = "smdash_edge_w"
+        const val G_EDGE_T = "smdash_edge_t"
         /** Settings.Global flag the patched stock writes: 1 = it is suppressing its dashboard. */
         const val G_SUPPRESS = "smdash_suppress"
         /** STATE still arriving this long after suppression began ⇒ the flag is stale. */

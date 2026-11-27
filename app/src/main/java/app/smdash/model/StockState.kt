@@ -38,6 +38,51 @@ object DashStore {
      *  means the patch works, whatever adbd says now). */
     val noRoot = MutableStateFlow(false)
 
+    /** Full-screen turn signals (opt-in): a band along the left/right SCREEN edge, bright green at the
+     *  edge fading to transparent inwards, blinking with the indicator on that side — in addition to
+     *  the small bar on the tile. Set from the SM DASH panel (SETEDGE broadcast) or [app.smdash.SettingsActivity];
+     *  [app.smdash.OverlayService] persists them, mirrors them to Settings.Global and runs the windows. */
+    val edgeOn = MutableStateFlow(false)
+    /** Band width, % of the screen width ([EDGE_WIDTH_MIN]..[EDGE_WIDTH_MAX]). */
+    val edgeWidthPct = MutableStateFlow(EDGE_WIDTH_DEFAULT)
+    /** Band transparency, %: 0 = solid and bright, 100 = invisible. */
+    val edgeTranspPct = MutableStateFlow(EDGE_TRANSP_DEFAULT)
+    /** Demo of the bands for tuning them without a real indicator: until [edgeDemoUntil] (uptimeMillis)
+     *  the right and left bands flash ALTERNATELY, one blink each ([EDGE_DEMO_STEP_MS]), right first,
+     *  counted from [edgeDemoStart] so both band windows agree on the phase. Started by the "Demo"
+     *  button, extended by every slider move, stopped by the button or by closing the settings. */
+    val edgeDemoUntil = MutableStateFlow(0L)
+    val edgeDemoStart = MutableStateFlow(0L)
+
+    fun edgeDemoRunning(): Boolean = edgeDemoUntil.value > android.os.SystemClock.uptimeMillis()
+
+    /** Start (or restart) the demo for [EDGE_DEMO_MS]. */
+    fun startEdgeDemo() {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (!edgeDemoRunning()) edgeDemoStart.value = now
+        edgeDemoUntil.value = now + EDGE_DEMO_MS
+    }
+
+    /** Keep the demo running at least [EDGE_DEMO_TOUCH_MS] more (starts it if it isn't) — for sliders. */
+    fun extendEdgeDemo() {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (!edgeDemoRunning()) edgeDemoStart.value = now
+        edgeDemoUntil.value = maxOf(edgeDemoUntil.value, now + EDGE_DEMO_TOUCH_MS)
+    }
+
+    fun stopEdgeDemo() {
+        edgeDemoUntil.value = 0L
+    }
+
+    const val EDGE_WIDTH_MIN = 3
+    const val EDGE_WIDTH_MAX = 40
+    const val EDGE_WIDTH_DEFAULT = 12
+    const val EDGE_TRANSP_DEFAULT = 20
+    const val EDGE_DEMO_MS = 30_000L
+    const val EDGE_DEMO_TOUCH_MS = 10_000L
+    /** one demo step = one blink period of [app.smdash.ui.turnBlinkAlpha], so each side flashes once */
+    const val EDGE_DEMO_STEP_MS = 720L
+
 
     /** ANALOG dial: number alignment. true = align each number's OUTER edge (the digit nearest the
      *  ticks) onto one radius, so the gap to the ticks is even whether the number is 1 or 3 digits
