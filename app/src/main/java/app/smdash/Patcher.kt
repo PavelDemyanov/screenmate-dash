@@ -49,7 +49,9 @@ object Patcher {
     // dashboard window when suppression lifts, and a fresh observer would otherwise start visible).
     // 139a092d… = v0.42: stock **1.20** (came with the 2026-11-20 firmware). Same hooks as 1.19; R8 only
     // shifted the names by one (a new class `g`): OverlayDashboard V→W, gesture listener F→G.
-    const val PATCHED_MD5 = "139a092d708f965043ba438a9eedd6bc"
+    // 5214845b… = v0.43: stock **1.22** (2026-11-25 firmware). Same code again; R8 renamed far more this
+    // time (OverlayDashboard W→l0, gesture listener G→W, DashboardState f→t) — ported with port_rename.py.
+    const val PATCHED_MD5 = "5214845b314e055a6523ab2bf0da2cfb"
 
     // ── Second patch (since stock 1.19): Screenmate's settings UI is its own app, co.screenmate.settings,
     // updated on its own (an UPDATED_SYSTEM_APP in /data/app). We bind-mount a patched copy whose
@@ -60,19 +62,24 @@ object Patcher {
     private const val SETTINGS_ASSET = "patched_settings.apk"
     private const val SETTINGS_STAGED = "$WORK/patched_settings.apk"
     private const val SETTINGS_BACKUP = "$WORK/orig_settings.apk"
-    // 4c14d926… = co.screenmate.settings 1.1.2 + SmdashPanel.inject(this) at the top of n2/o.a()
-    const val SETTINGS_PATCHED_MD5 = "4c14d92676bfca8cdf8a772a8f9d20af"
-    // EXACT match only, never a prefix: the mount swaps the whole APK, so putting our 1.1.2 build over
-    // a newer settings app would run old code against the new app's data — it could take the user's
-    // Screenmate settings down. On any other version we simply skip the panel.
+    // 4c14d926… = settings 1.1.2 build 1800000003 + SmdashPanel.inject(this) at the top of n2/o.a() (v0.41–v0.42)
+    // 4ddd042b… = settings 1.1.2 build 1800000004 (rebuilt with Hilt; the Display section is now
+    //             section/display/B) + SmdashPanel.inject(this) at the top of B.e() (v0.43)
+    const val SETTINGS_PATCHED_MD5 = "4ddd042b7912c59c2c5c7ccb4e3e4804"
+    // EXACT match only, never a prefix: the mount swaps the whole APK, so putting our build over a
+    // different settings app would run old code against the new app's data — it could take the user's
+    // Screenmate settings down. On any other version we skip the panel.
+    // Match the versionCode, not just the name: Screenmate shipped two different "1.1.2" builds
+    // (1800000003 → 1800000004, Nov 2026), and v0.42 checked only the name.
     const val REQUIRED_SETTINGS_VERSION = "1.1.2"
+    const val REQUIRED_SETTINGS_VERSION_CODE = "1800000004"
 
     // The patch is built for one stock Screenmate version (its smali hooks are ported onto that code).
     // On a MISMATCHED stock it would mount but silently fail — the data hook never fires, so the
     // overlay sits in the demo animation forever (seen in a real user's diagnostic report). We refuse
     // to mount unless the stock version matches, and tell the user (directionally) to update
     // Screenmate (if older) or wait for a new SM Dash (if newer). Bump this on every re-base.
-    const val REQUIRED_STOCK_PREFIX = "1.20"
+    const val REQUIRED_STOCK_PREFIX = "1.22"
 
     /** Since 1.19 the stock APK declares `package="co.screenmate.app"` + `<original-package
      *  co.teslogic.screenmate>`: PackageManager keeps the old package name, but the PROCESS is named
@@ -125,6 +132,11 @@ object Patcher {
         sh("dumpsys package $pkg 2>/dev/null | grep -m1 versionName")
             .substringAfter("versionName=", "").trim().substringBefore(' ')
 
+    /** First `versionCode` dumpsys prints = the ACTIVE one (same ordering as [pkgVersion]). */
+    private fun Dadb.pkgVersionCode(pkg: String): String =
+        sh("dumpsys package $pkg 2>/dev/null | grep -m1 versionCode")
+            .substringAfter("versionCode=", "").trim().substringBefore(' ')
+
     /** Peel every bind layer off [target] (LAZY umount in a loop until the md5 stops changing — a plain
      *  umount is EBUSY because system_server keeps the apk mmap'd). Same loop the stock mount uses. */
     private fun Dadb.peelMounts(target: String) {
@@ -146,8 +158,18 @@ object Patcher {
             if (target.isEmpty() || !dadb.sh("[ -e '$target' ] && echo ok").contains("ok")) return
             if (dadb.md5(target) == SETTINGS_PATCHED_MD5) return // already mounted — no stacking
             val ver = dadb.pkgVersion(SETTINGS_PKG)
-            if (ver != REQUIRED_SETTINGS_VERSION) {
-                log(s.panelSkipPrefix + REQUIRED_SETTINGS_VERSION + s.panelSkipMid + ver.ifEmpty { "?" } + s.panelSkipSuffix)
+            val code = dadb.pkgVersionCode(SETTINGS_PKG)
+            if (ver != REQUIRED_SETTINGS_VERSION || code != REQUIRED_SETTINGS_VERSION_CODE) {
+                // Only we ever bind-mount over the settings app: if a layer is there (an older SM Dash
+                // mounted its panel over this build), peel it so the user's settings run pristine.
+                if (dadb.sh("grep -c ' $target ' /proc/mounts").trim().let { it.isNotEmpty() && it != "0" }) {
+                    dadb.peelMounts(target)
+                    dadb.sh("am force-stop $SETTINGS_PKG")
+                }
+                log(
+                    s.panelSkipPrefix + "$REQUIRED_SETTINGS_VERSION ($REQUIRED_SETTINGS_VERSION_CODE)" +
+                        s.panelSkipMid + "${ver.ifEmpty { "?" }} (${code.ifEmpty { "?" }})" + s.panelSkipSuffix,
+                )
                 return
             }
             if (dadb.md5(SETTINGS_STAGED) != SETTINGS_PATCHED_MD5) {
@@ -396,6 +418,7 @@ object Patcher {
             }
             dadb.apkPath(SETTINGS_PKG).takeIf { it.isNotEmpty() }?.let { st ->
                 out["settingsVersion"] = dadb.pkgVersion(SETTINGS_PKG).ifEmpty { null }
+                out["settingsVersionCode"] = dadb.pkgVersionCode(SETTINGS_PKG).ifEmpty { null }
                 out["settingsPanelMounted"] = dadb.md5(st) == SETTINGS_PATCHED_MD5
             }
             out["stockVersion"] = dadb.sh("dumpsys package $STOCK_PKG 2>/dev/null | grep -m1 versionName")
