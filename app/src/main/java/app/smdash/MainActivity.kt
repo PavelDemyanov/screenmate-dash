@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -62,8 +63,11 @@ class MainActivity : ComponentActivity() {
             if (mode == "tune") {
                 TuningScreen()
             } else {
+                // Scrolls: on the car's screen the buttons alone already run past the bottom edge, and
+                // the patch log used to sit below them, out of reach (a user saw "no log at all").
                 Column(
-                    Modifier.fillMaxSize().background(Color(0xFF0E0F11)).padding(28.dp),
+                    Modifier.fillMaxSize().background(Color(0xFF0E0F11))
+                        .verticalScroll(rememberScrollState()).padding(28.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.Top),
                 ) {
@@ -87,6 +91,15 @@ class MainActivity : ComponentActivity() {
                         log = ""; busy = true
                         Thread { Patcher.hardReset(ctx, s, append); main.post { busy = false } }.start()
                     }
+                    // right under the three buttons that write to it, so it shows up where the user tapped
+                    if (log.isNotEmpty()) {
+                        Box(
+                            Modifier.width(380.dp).heightIn(max = 220.dp).clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF17181C)).padding(12.dp).verticalScroll(rememberScrollState()),
+                        ) {
+                            BasicText(log, style = TextStyle(color = Color(0xFFB9C0C7), fontSize = 13.sp))
+                        }
+                    }
                     Btn(s.startOverlay, Color(0xFF2E7D5B)) { startOverlay(ctx) }
                     Btn(s.stopOverlay, Color(0xFF5A3A3A)) {
                         // switch to the stock dashboard; start the service with the force-stock extra so it
@@ -98,15 +111,6 @@ class MainActivity : ComponentActivity() {
                     }
                     Btn(s.dashSettings, Color(0xFF33343A)) { startActivity(Intent(ctx, SettingsActivity::class.java)) }
                     Btn("Выравнивание текста (тюнер)", Color(0xFF3A3550)) { startActivity(Intent(ctx, TuningActivity::class.java)) }
-
-                    if (log.isNotEmpty()) {
-                        Box(
-                            Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(10.dp))
-                                .background(Color(0xFF17181C)).padding(12.dp).verticalScroll(rememberScrollState()),
-                        ) {
-                            BasicText(log, style = TextStyle(color = Color(0xFFB9C0C7), fontSize = 13.sp))
-                        }
-                    }
                 }
             }
         }

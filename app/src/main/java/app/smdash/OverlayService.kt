@@ -1216,7 +1216,6 @@ class OverlayService : Service() {
         const val ACTION_SET_TRANSP = "app.smdash.SETTRANSP"
         const val ACTION_CHECK_UPDATE = "app.smdash.CHECKUPDATE" // panel open → re-check for a release
         const val ACTION_DO_UPDATE = "app.smdash.DOUPDATE"       // panel "Update" tap → install latest
-        const val STOCK_PKG = "co.teslogic.screenmate"
         const val TAG = "smdash"
 
         /** intent extra (boolean): force OUR dashboard up on start (boot / install / "Start

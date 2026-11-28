@@ -39,8 +39,6 @@ object UpdateChecker {
      *  tag from a redirect rather than the API). */
     private const val COMPAT_URL = "https://raw.githubusercontent.com/$REPO/main/compat.json"
 
-    private const val STOCK_PKG = "co.teslogic.screenmate"
-
     /** Global keys the injected settings panel reads (it can't query our package directly). */
     const val GLOBAL_LATEST = "smdash_update_latest"   // version we'd install, e.g. "0.26" ("" if unknown)
     const val GLOBAL_STATUS = "smdash_update_status"   // "available"|"current"|"blocked_stock"|"downloading"|"installing"|"error"
@@ -92,9 +90,15 @@ object UpdateChecker {
     }
 
     /** The Screenmate build installed on this box, e.g. "1.14" — read straight from PackageManager
-     *  (no root needed; the manifest declares a <queries> entry so it stays visible on API 30+). */
-    fun stockVersion(ctx: Context): String =
-        runCatching { ctx.packageManager.getPackageInfo(STOCK_PKG, 0).versionName }.getOrNull().orEmpty()
+     *  (no root needed; the manifest declares <queries> entries so it stays visible on API 30+).
+     *  The stock goes by either of two package names ([Patcher.STOCK_PKGS]); if a box has both, the
+     *  one on the version our patch targets wins, as in Patcher. */
+    fun stockVersion(ctx: Context): String {
+        val found = Patcher.STOCK_PKGS.mapNotNull { pkg ->
+            runCatching { ctx.packageManager.getPackageInfo(pkg, 0).versionName }.getOrNull()
+        }
+        return found.firstOrNull { it.startsWith(Patcher.REQUIRED_STOCK_PREFIX) } ?: found.firstOrNull().orEmpty()
+    }
 
     /** app version → required Screenmate version, from [COMPAT_URL]. null = couldn't fetch/parse. */
     private fun fetchCompat(): Map<String, String>? {

@@ -27,7 +27,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object Patcher {
     private const val TAG = "SMPATCH"
-    private const val STOCK_PKG = "co.teslogic.screenmate"
+    /** The stock's PackageManager name is not the same on every box (found Nov 2026). Where the stock
+     *  came with the firmware, PM keeps the pre-1.19 name `co.teslogic.screenmate` (the APK's
+     *  `<original-package>` renames it); where Screenmate's Updater installed it, PM registers it under
+     *  the APK's own name `co.screenmate.app`, and an app that knows only the old name finds no
+     *  Screenmate at all. [stockPkg] picks the one this box has; this order breaks a tie. */
+    val STOCK_PKGS = listOf("co.teslogic.screenmate", "co.screenmate.app")
     private const val WORK = "/data/local/tmp/smdash"
     private const val PATCHED = "$WORK/patched_stock.apk"
     private const val BACKUP = "$WORK/orig_stock.apk"
@@ -82,11 +87,14 @@ object Patcher {
     // to mount unless the stock version matches, and tell the user (directionally) to update
     // Screenmate (if older) or wait for a new SM Dash (if newer). Bump this on every re-base.
     const val REQUIRED_STOCK_PREFIX = "1.22"
+    // The exact build the patch was made from. The mount swaps the whole APK, so a different build
+    // under the same name (Screenmate already did that once with its settings app) would run our code
+    // against its manifest and resources. Bump together with REQUIRED_STOCK_PREFIX.
+    const val REQUIRED_STOCK_VERSION_CODE = "1800000006"
 
-    /** Since 1.19 the stock APK declares `package="co.screenmate.app"` + `<original-package
-     *  co.teslogic.screenmate>`: PackageManager keeps the old package name, but the PROCESS is named
-     *  after the new one. `pidof` therefore has to look for both. */
-    private const val STOCK_PROCS = "co.screenmate.app $STOCK_PKG"
+    /** Since 1.19 the PROCESS is named `co.screenmate.app` whatever PackageManager calls the package
+     *  (see [STOCK_PKGS]). `pidof` looks for both names. */
+    private val STOCK_PROCS = STOCK_PKGS.joinToString(" ")
 
     /** Since 1.19 Screenmate's settings UI is its own app; the stock dashboard has no Activity at all. */
     private const val SETTINGS_ACTIVITY = "co.screenmate.settings/.ui.activity.MainActivity"
@@ -113,7 +121,24 @@ object Patcher {
      * The ACTIVE stock apk path. On v1.8 this is `/data/app/~~<rand>/…-<rand>==/base.apk`, and the
      * random dir changes on EVERY stock update — so it must be resolved live, never hardcoded.
      */
-    private fun Dadb.stockApkPath(): String = apkPath(STOCK_PKG)
+    private fun Dadb.stockApkPath(pkg: String): String = apkPath(pkg)
+
+    /**
+     * The stock's PackageManager name on THIS box, see [STOCK_PKGS]. Looked up for user 10 first (the
+     * stock is installed only there since the 2026-11 firmware), then user 0 for older firmware. If a
+     * box lists both names, the one on the version this patch is built for wins. Falls back to the old
+     * name, so a box with neither still ends in the usual "not found" message.
+     */
+    private fun Dadb.stockPkg(): String {
+        fun listed(user: String): List<String> {
+            val pkgs = sh("pm list packages $user 2>/dev/null").lineSequence()
+                .map { it.removePrefix("package:").trim() }.toSet()
+            return STOCK_PKGS.filter { it in pkgs }
+        }
+        val found = listed("--user 10").ifEmpty { listed("") }
+        if (found.size > 1) found.firstOrNull { pkgVersion(it).startsWith(REQUIRED_STOCK_PREFIX) }?.let { return it }
+        return found.firstOrNull() ?: STOCK_PKGS[0]
+    }
 
     private fun Dadb.apkPath(pkg: String): String {
         // Since the 2026-11 firmware the stock is installed ONLY for user 10 (user 0 shows
@@ -126,7 +151,7 @@ object Patcher {
 
     /** The stock Screenmate versionName, e.g. "1.8". PM reports the ORIGINAL scanned manifest even
      *  when our patch is bind-mounted over it, so this is the device's real stock version either way. */
-    private fun Dadb.stockVersion(): String = pkgVersion(STOCK_PKG)
+    private fun Dadb.stockVersion(pkg: String): String = pkgVersion(pkg)
 
     /** First `versionName` dumpsys prints = the ACTIVE one (an updated system app lists its hidden
      *  /system copy after it). */
@@ -225,13 +250,13 @@ object Patcher {
      * preserved (recreating the inode would change them and the stock could no longer read it).
      * Verified on-device: the flip preserves `u10_a177` + `...:c522,c768` and the stock honours it.
      */
-    private fun Dadb.enableStockDashboard() {
+    private fun Dadb.enableStockDashboard(pkg: String) {
         // 1.19+: the setting moved to Settings.Global `screenmate_dashboard_visible` ("1"/"0"), shared
         // with the separate co.screenmate.settings app; the stock migrates the old pref there once.
         sh("v=\$(settings get global screenmate_dashboard_visible 2>/dev/null); " +
             "[ \"\$v\" = 0 -o \"\$v\" = false ] && settings put global screenmate_dashboard_visible 1")
         // ≤1.18: SharedPreferences inside the stock's data dir (a no-op where the file is gone).
-        val f = "/data/user/10/$STOCK_PKG/shared_prefs/SETTINGS_REPO.xml"
+        val f = "/data/user/10/$pkg/shared_prefs/SETTINGS_REPO.xml"
         val needs = sh("[ -f '$f' ] && grep -q 'dashboard-visible\" value=\"false\"' '$f' && echo hit")
         if (!needs.contains("hit")) return // no file, or already visible → nothing to do
         val tmp = "$WORK/sr.tmp"
@@ -277,14 +302,20 @@ object Patcher {
             // runs — otherwise the overlay is stuck in the demo animation. Runs on EVERY apply (before
             // the stock is force-stopped + restarted below), so it fixes both a fresh install with the
             // toggle off AND an already-stuck box on its next boot (boot always takes the full path).
-            dadb.enableStockDashboard()
+            // Which name PackageManager uses for the stock on this box (it differs between boxes).
+            val pkg = dadb.stockPkg()
+            dadb.enableStockDashboard(pkg)
 
             // Resolve the ACTIVE stock apk (its /data/app dir changes on every stock update).
-            val target = dadb.stockApkPath()
+            val target = dadb.stockApkPath(pkg)
             // GUARD: only ever touch a real Screenmate — the stock dashboard APK must be there
             if (target.isEmpty() || !dadb.sh("[ -e '$target' ] && echo ok").contains("ok")) {
                 log(s.notFound); return false
             }
+            // one technical line, the same in both languages: what we found and where
+            val ver = dadb.stockVersion(pkg)
+            val code = dadb.pkgVersionCode(pkg)
+            log("Screenmate $ver ($code) · $pkg · $target")
 
             dadb.sh("mkdir -p $WORK")
 
@@ -304,7 +335,6 @@ object Patcher {
             // only on a fresh (not-yet-mounted) apply, so it never disturbs a working install.
             // Block only a CONFIRMED wrong version; if the read comes back empty (a dumpsys hiccup),
             // proceed rather than falsely block a legit 1.8 install — an empty read isn't evidence.
-            val ver = dadb.stockVersion()
             if (ver.isNotEmpty() && !ver.startsWith(REQUIRED_STOCK_PREFIX)) {
                 // Direction matters: a user BELOW 1.8 (e.g. 1.7) should update Screenmate to 1.8; a user
                 // ABOVE it (e.g. 1.9 — Screenmate shipped a newer stock) can't "downgrade to 1.8", so
@@ -313,6 +343,17 @@ object Patcher {
                     log(s.wrongStockOldPrefix + REQUIRED_STOCK_PREFIX + s.wrongStockOldMid + ver + s.wrongStockOldSuffix)
                 } else {
                     log(s.wrongStockNewPrefix + REQUIRED_STOCK_PREFIX + s.wrongStockNewMid + ver + s.wrongStockNewSuffix)
+                }
+                return false
+            }
+            // Same name, different build: refuse too, in the same words, with both build numbers.
+            if (code.isNotEmpty() && code != REQUIRED_STOCK_VERSION_CODE) {
+                val want = "$REQUIRED_STOCK_PREFIX ($REQUIRED_STOCK_VERSION_CODE)"
+                val have = "$ver ($code)"
+                if ((code.toLongOrNull() ?: 0L) < REQUIRED_STOCK_VERSION_CODE.toLong()) {
+                    log(s.wrongStockOldPrefix + want + s.wrongStockOldMid + have + s.wrongStockOldSuffix)
+                } else {
+                    log(s.wrongStockNewPrefix + want + s.wrongStockNewMid + have + s.wrongStockNewSuffix)
                 }
                 return false
             }
@@ -369,8 +410,8 @@ object Patcher {
             // process comes back RESIDENT and broadcasting with NO visible Activity, and the settings
             // process stays available — the on-screen gear opens it on demand.
             // --include-stopped-packages is required because force-stop left the package stopped.
-            dadb.sh("am force-stop $STOCK_PKG; am force-stop com.android.settings")
-            dadb.sh("am broadcast --user 10 -a android.intent.action.BOOT_COMPLETED -p $STOCK_PKG --include-stopped-packages")
+            dadb.sh("am force-stop $pkg; am force-stop com.android.settings")
+            dadb.sh("am broadcast --user 10 -a android.intent.action.BOOT_COMPLETED -p $pkg --include-stopped-packages")
             // Safety net: if the boot broadcast didn't spawn the stock (protected-broadcast refusal /
             // receiver missing / FGS refused), fall back to launching the activity so the dashboard still
             // comes up. That fallback DOES show settings — but a working dashboard beats a blank one, and
@@ -403,14 +444,16 @@ object Patcher {
      */
     fun collectPatchDiag(ctx: Context): Map<String, Any?> {
         val out = linkedMapOf<String, Any?>(
-            "expectedMd5" to PATCHED_MD5, "mounted" to null, "match" to null, "targetMd5" to null,
+            "expectedMd5" to PATCHED_MD5, "stockPkg" to null, "mounted" to null, "match" to null, "targetMd5" to null,
             "stockVersion" to null, "stockPath" to null, "broadcastSeenInLog" to null, "logTail" to null,
             "settingsVersion" to null, "settingsPanelMounted" to null,
         )
         var dadb: Dadb? = null
         try {
             dadb = Dadb.create("127.0.0.1", 5555, keyPair(ctx))
-            val target = dadb.stockApkPath()
+            val pkg = dadb.stockPkg()
+            out["stockPkg"] = pkg
+            val target = dadb.stockApkPath(pkg)
             out["stockPath"] = target.ifEmpty { null }
             if (target.isNotEmpty()) {
                 val md5 = dadb.md5(target)
@@ -423,8 +466,8 @@ object Patcher {
                 out["settingsVersionCode"] = dadb.pkgVersionCode(SETTINGS_PKG).ifEmpty { null }
                 out["settingsPanelMounted"] = dadb.md5(st) == SETTINGS_PATCHED_MD5
             }
-            out["stockVersion"] = dadb.sh("dumpsys package $STOCK_PKG 2>/dev/null | grep -m1 versionName")
-                .substringAfter("versionName=", "").trim().ifEmpty { null }
+            out["stockVersion"] = dadb.stockVersion(pkg).ifEmpty { null }
+            out["stockVersionCode"] = dadb.pkgVersionCode(pkg).ifEmpty { null }
             val log = dadb.sh("logcat -d -t 800 2>/dev/null")
             out["broadcastSeenInLog"] = log.contains("app.smdash.STATE")
             out["logTail"] = log.lineSequence()
@@ -491,7 +534,8 @@ object Patcher {
             log(s.revertConnecting)
             dadb = Dadb.create("127.0.0.1", 5555, keyPair(ctx))
             if (!dadb.sh("id").contains("uid=0")) { log(s.revertNoRoot); return false }
-            val target = dadb.stockApkPath()
+            val pkg = dadb.stockPkg()
+            val target = dadb.stockApkPath(pkg)
             if (target.isEmpty() || !dadb.sh("[ -e '$target' ] && echo ok").contains("ok")) {
                 log(s.notFound); return false
             }
@@ -506,7 +550,7 @@ object Patcher {
             // path resolves to the pristine underlying file right away) even while a holder lingers.
             // The loop peels any stacked binds until the pristine md5 shows.
             dadb.sh(
-                "n=0; while [ \$n -lt 30 ]; do am force-stop $STOCK_PKG; " +
+                "n=0; while [ \$n -lt 30 ]; do am force-stop $pkg; " +
                     "umount '$target' 2>/dev/null; umount -l '$target' 2>/dev/null; " +
                     "m=\$(md5sum '$target' | cut -d' ' -f1); [ \"\$m\" != \"$PATCHED_MD5\" ] && break; n=\$((n+1)); done",
             )
@@ -543,7 +587,7 @@ object Patcher {
             val id = dadb.sh("id").trim()
             if (!id.contains("uid=0")) { log(s.noRootPrefix + id.substringBefore(' ') + s.noRootHint); return false }
             // unload the stock dashboard, its settings UI, and the settings host from memory
-            dadb.sh("am force-stop $STOCK_PKG")
+            dadb.sh("am force-stop ${dadb.stockPkg()}")
             dadb.sh("am force-stop com.android.settings")
             // re-grant + bring OUR overlay back up (reconciles the hide flag), then reload the stock menu
             ensureGrantsAndStart(dadb)

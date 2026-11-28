@@ -11,9 +11,11 @@
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
 
     <!-- API 30+ hides other packages by default. The updater needs the stock's versionName to know
-         which of our releases can actually patch this box (see UpdateChecker.plan). -->
+         which of our releases can actually patch this box (see UpdateChecker.plan). The stock goes by
+         either name, depending on how it got onto the box (see Patcher.STOCK_PKGS). -->
     <queries>
         <package android:name="co.teslogic.screenmate" />
+        <package android:name="co.screenmate.app" />
     </queries>
 
     <application
